@@ -287,12 +287,32 @@ window.TAF_AUTH = (function(){
   function doLogout(){if(sb)sb.auth.signOut();session=null;username=null;localStorage.removeItem(GUEST_KEY);renderStatus();showToast("已退出登录");}
   async function syncSaveLocal(){
     if(!session)return;
-    var ck=cityKey(),ids=[];
-    try{var raw=localStorage.getItem(ck);if(raw){var o=JSON.parse(raw);if(o&&Array.isArray(o.ids))ids=o.ids;}}catch(e){}
+    var ck=cityKey(),states={},ids=[];
+    // 读取本机三态存档（{states:{id:"inside"|"outside"|null}}），并兼容旧两态 {ids:[...]}
+    try{
+      var raw=localStorage.getItem(ck);
+      if(raw){
+        var o=JSON.parse(raw);
+        if(o&&o.states&&typeof o.states==="object"){
+          Object.keys(o.states).forEach(function(k){ states[k]=o.states[k]; });
+        } else if(o&&Array.isArray(o.ids)){
+          o.ids.forEach(function(k){ states[k]="inside"; }); // 旧两态：ids 全视为「入内参观」
+        }
+      }
+    }catch(e){}
+    Object.keys(states).forEach(function(k){ if(states[k]) ids.push(k); }); // 已选=visit≠null
     initClient(); if(!sb)return;
-    var r=await sb.from("selections").upsert({user_id:session.user.id,city_key:ck,ids:ids,updated_at:new Date().toISOString()},{onConflict:"user_id,city_key"});
-    if(r.error){console.warn("云端保存失败:",r.error);showToast("云端保存失败："+(r.error.message||r.error)+"（已存本机）");}
-    else{showToast("已保存到云端 ✓");}
+    var payload={user_id:session.user.id,city_key:ck,ids:ids,updated_at:new Date().toISOString(),states:states};
+    var r=await sb.from("selections").upsert(payload,{onConflict:"user_id,city_key"});
+    if(r.error){
+      // 若云端表尚未增加 states 列，去掉该字段重试（仅损失 inside/outside 区分，仍保两态）
+      if(/states/i.test(String(r.error.message||r.error))){
+        delete payload.states;
+        r=await sb.from("selections").upsert(payload,{onConflict:"user_id,city_key"});
+      }
+      if(r.error){console.warn("云端保存失败:",r.error);showToast("云端保存失败："+(r.error.message||r.error)+"（已存本机）");}
+      else{showToast("已保存到云端 ✓（仅两态）");}
+    } else { showToast("已保存到云端 ✓"); }
   }
   function refreshUI(){
     if(typeof render==="function"){ try{ render(); return true; }catch(e){ console.warn("render 刷新失败:",e); } }
@@ -300,26 +320,35 @@ window.TAF_AUTH = (function(){
   }
   async function loadAndMerge(ck){
     if(!session)return;initClient(); if(!sb)return;
-    var r=await sb.from("selections").select("ids").eq("user_id",session.user.id).eq("city_key",ck).maybeSingle();
+    // 同时读取 ids 与 states 两列；优先用 states（三态），无则回退 ids 推导
+    var r=await sb.from("selections").select("ids,states").eq("user_id",session.user.id).eq("city_key",ck).maybeSingle();
     if(r.error){console.warn("云端读取失败:",r.error);showToast("云端读取失败："+(r.error.message||r.error));return;}
     if(!r.data){ // 云端尚无记录：保留本机选择（或默认），不做任何覆盖
       return;
     }
-    // 登录态下云端为唯一真相：直接用云端集合作为当前选择，避免本机陈旧 localStorage
-    // 与云端取并集而污染跨设备同步结果（即"勾选框不同步"的根因）。未登录（游客）时
-    // 根本不会走到这里，页面由 selectedIds() 直接读本机数据，符合"未登录用 local"的约定。
-    var cloud=Array.isArray(r.data.ids)?r.data.ids:[];
-    try{ localStorage.setItem(ck, JSON.stringify({city:(((typeof DATA!=="undefined"&&DATA.city)||(window.DATA&&window.DATA.city))||""), ids:cloud})); }catch(e){}
-    // 直接重画 UI 反映云端选择（不再依赖 location.reload，避免时序/循环问题）。
+    // 登录态下云端为唯一真相：还原成三态 states 写回本机，再重画 UI
+    var states={};
+    if(r.data.states&&typeof r.data.states==="object"){
+      Object.keys(r.data.states).forEach(function(k){ states[k]=r.data.states[k]; });
+    } else {
+      (Array.isArray(r.data.ids)?r.data.ids:[]).forEach(function(k){ states[k]="inside"; });
+    }
+    try{ localStorage.setItem(ck, JSON.stringify({city:(((typeof DATA!=="undefined"&&DATA.city)||(window.DATA&&window.DATA.city))||""), states:states})); }catch(e){}
     refreshUI();
-    if(cloud.length){ showToast("已从云端同步 "+cloud.length+" 个选择 ✓"); }
+    var count=0; Object.keys(states).forEach(function(k){ if(states[k])count++; });
+    if(count){ showToast("已从云端同步 "+count+" 个选择 ✓"); }
     else { showToast("已从云端同步（0 个选择）"); }
   }
   async function loadAllSelections(){
     if(!session)return null;initClient(); if(!sb)return null;
-    var r=await sb.from("selections").select("city_key,ids").eq("user_id",session.user.id);
+    var r=await sb.from("selections").select("city_key,ids,states").eq("user_id",session.user.id);
     if(r.error){console.warn("云端读取失败:",r.error);return null;}
-    var map={};(r.data||[]).forEach(function(x){map[x.city_key]=Array.isArray(x.ids)?x.ids:[];});
+    var map={};(r.data||[]).forEach(function(x){
+      var ids=[];
+      if(x.states&&typeof x.states==="object"){ Object.keys(x.states).forEach(function(k){ if(x.states[k])ids.push(k); }); }
+      else if(Array.isArray(x.ids)){ ids=x.ids; }
+      map[x.city_key]=ids;
+    });
     return map;
   }
   function esc(s){s=String(s==null?"":s);return s.replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
@@ -357,7 +386,9 @@ async function exportSelection(){
     var ck='taf-sel-'+(c.cityEn||c.city);
     var ids=[];
     if(cloudMap && cloudMap[ck] && cloudMap[ck].length){ ids=cloudMap[ck]; }
-    else { try{var raw=localStorage.getItem(ck);if(raw){var o=JSON.parse(raw);if(o&&o.ids&&o.ids.length)ids=o.ids;}}catch(e){} }
+    else { try{var raw=localStorage.getItem(ck);if(raw){var o=JSON.parse(raw);
+      if(o&&o.states&&typeof o.states==="object"){Object.keys(o.states).forEach(function(k){if(o.states[k])ids.push(k);});}
+      else if(o&&o.ids&&o.ids.length)ids=o.ids;}}catch(e){} }
     if(!ids.length)continue;
     var map={};for(var j=0;j<c.attractions.length;j++){map[c.attractions[j].id]={name:c.attractions[j].name,idx:j+1};}
     var picked=[];for(var k=0;k<ids.length;k++){if(map[ids[k]])picked.push(map[ids[k]]);}
