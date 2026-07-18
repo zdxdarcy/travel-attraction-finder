@@ -1,0 +1,1578 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>景点导览</title>
+  <!-- taf-favicon-injected -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🇩🇪</text></svg>">
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1f2733; --muted:#6b7686;
+    --line:#e6e9ef; --accent:#2f6df0; --accent-soft:#eaf1ff; --star:#f5a623;
+    --shadow:0 6px 24px rgba(20,40,80,.08);
+    --nav-h:56px; /* 顶部标签栏高度：运行时由 JS 测量真实高度后覆盖，用于锚点偏移与右栏吸顶 */
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--ink);line-height:1.65;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none}
+  html{scroll-behavior:smooth} /* 点击标签栏 chip 平滑跳转，并配合 scroll-margin-top 不被吸顶标签栏遮挡 */
+  .wrap{max-width:1240px;margin:0 auto;padding:0 20px}
+
+  /* Header */
+  header.hero{background:linear-gradient(135deg,#2f6df0,#6aa0ff);color:#fff;padding:40px 0}
+  .hero-body{display:flex;gap:28px;align-items:center;flex-wrap:wrap}
+  .hero-text{flex:1;min-width:280px}
+  .flag{font-size:42px;line-height:1}
+  .hero h1{margin:12px 0 4px;font-size:34px;font-weight:800;letter-spacing:.5px}
+  .hero .region{opacity:.92;font-size:15px}
+  .hero p.intro{margin:16px 0 0;max-width:640px;font-size:15.5px;opacity:.96}
+  .hero-map{width:340px;flex:0 0 340px;height:230px;border-radius:16px;overflow:hidden;
+    box-shadow:0 8px 24px rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.4)}
+  .hero-map iframe{width:100%;height:100%;border:0;filter:brightness(.95)}
+
+  /* 顶部标签栏：导航 + 选择状态 */
+  nav.toc{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line)}
+  nav.toc .wrap{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding-top:10px;padding-bottom:10px}
+  /* 标签栏只保留选择状态 chip（蓝色=已选、灰色=未选）；计数与复制按钮已移除 */
+  .chips{display:flex;gap:8px;flex-wrap:wrap;flex:1}
+  nav.toc a{font-size:13px;padding:6px 11px;border:1px solid var(--line);border-radius:999px;
+    color:var(--muted);background:#fff;white-space:nowrap;transition:all .15s}
+  /* 已选择 = 蓝色；未选择 = 灰色 */
+  nav.toc a.sel-on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  nav.toc a.sel-off{background:#fff;color:var(--muted);border-color:var(--line);opacity:.65}
+  nav.toc a:hover{border-color:var(--accent)}
+  /* 右上角「保存更改」按钮：已保存=绿色，切换选取后变橙色警示（未保存），点击保存后恢复绿色 */
+  .save-btn{margin-left:auto;flex:0 0 auto;font-size:13px;font-weight:700;color:#fff;background:#2f9e44;
+    border:1px solid #2f9e44;border-radius:999px;padding:7px 16px;cursor:pointer;white-space:nowrap;transition:all .15s}
+  .save-btn:hover{background:#2b8a3e;border-color:#2b8a3e}
+  .save-btn.dirty{background:#e8590c;border-color:#e8590c;box-shadow:0 0 0 3px rgba(232,89,12,.18)}
+  .save-btn.dirty:hover{background:#d9480f;border-color:#d9480f}
+  @media (max-width:560px){ .save-btn{order:2;margin-left:0} }
+
+  /* Attraction */
+  .attraction{display:flex;gap:28px;padding:40px 0;border-bottom:1px solid var(--line);
+    scroll-margin-top:calc(var(--nav-h) + 16px)} /* 锚点跳转时为吸顶标签栏预留高度，避免标题被遮挡 */
+  .left{flex:1;min-width:0}
+  .right{width:540px;flex:0 0 540px;align-self:flex-start;position:sticky;top:var(--nav-h)}
+
+  .a-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .a-head h2{margin:0;font-size:24px;font-weight:800}
+  .a-head .en{color:var(--muted);font-size:14px}
+  .visit-cb{width:20px;height:20px;accent-color:var(--accent);cursor:pointer;margin:0;flex:0 0 auto}
+  .a-head .vlabel{margin-left:auto;display:none;align-items:center;gap:4px;font-size:14.5px;font-weight:600;
+    color:var(--ink);user-select:none;cursor:pointer}
+  .a-head.visit-on .vlabel{display:inline-flex} /* 「✓ 准备参观」仅在勾选状态下显示 */
+  .a-head .vlabel .tick{color:var(--accent);font-weight:700}
+  .tag{display:inline-block;margin:10px 0 6px;padding:4px 12px;background:var(--accent-soft);color:var(--accent);
+    border-radius:999px;font-size:13px;font-weight:600}
+
+  .a-intro{font-size:15.5px;color:#33404f;margin:0 0 20px;line-height:1.85}
+  .facts{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:22px}
+  .fact{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow)}
+  .fact h4{margin:0 0 6px;font-size:12.5px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;font-weight:700}
+  .fact p{margin:0;font-size:14.5px;color:var(--ink);line-height:1.6}
+  .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .gallery img{width:100%;height:190px;object-fit:cover;border-radius:12px;border:1px solid var(--line);
+    cursor:pointer;transition:transform .15s ease, box-shadow .15s ease;background:#eef1f5}
+  .gallery img:hover{transform:translateY(-3px);box-shadow:var(--shadow)}
+
+  /* Right column: map on top, review card below */
+  .mapcard{display:flex;flex-direction:column;gap:12px;align-items:stretch}
+  .map-frame{width:100%;height:var(--map-height,340px);border:0;border-radius:14px;box-shadow:var(--shadow);display:block}
+  .reviewcol{width:100%;display:block}
+  .review-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;
+    box-shadow:var(--shadow);width:100%;display:flex;flex-direction:column;justify-content:flex-start}
+  .review-card .rc-title{font-size:12.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+  .review-card .stars{font-size:22px;letter-spacing:2px;color:var(--star);line-height:1}
+  .review-card .score{font-weight:800;font-size:18px;margin-left:6px;color:var(--ink)}
+  .review-card .meta{font-size:13px;color:var(--muted);margin-top:6px}
+  .review-card .src{font-size:12px;color:var(--muted);margin-top:2px}
+  .review-card .gmap-link{display:inline-block;margin-top:10px;font-size:13px;font-weight:600}
+  .review-list{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+  .review-item{font-size:13px;color:#33404f;line-height:1.5;padding:8px 10px;background:#f8f9fb;border-radius:10px;
+    border-left:3px solid var(--accent);display:flex;gap:8px;align-items:flex-start}
+  .review-item .rtext{flex:1;min-width:0}
+  .review-item .rbadge{flex:0 0 auto;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;white-space:nowrap;margin-top:1px}
+  .rb-good{background:#e7f6ec;color:#1f9d4d;border:1px solid #bfe6cc}
+  .rb-neutral{background:#fff4e0;color:#b9791b;border:1px solid #f0d49a}
+  .rb-bad{background:#fdeaea;color:#cf3b3b;border:1px solid #f3c2c2}
+  .rt-good{border-left-color:#1f9d4d}
+  .rt-neutral{border-left-color:#b9791b}
+  .rt-bad{border-left-color:#cf3b3b}
+
+  footer{padding:34px 0 60px;color:var(--muted);font-size:13px;text-align:center;line-height:1.8}
+
+  /* 复制提示 toast */
+  .toast{position:fixed;left:50%;bottom:32px;transform:translateX(-50%) translateY(20px);
+    background:var(--ink);color:#fff;padding:11px 20px;border-radius:999px;font-size:14px;font-weight:600;
+    opacity:0;pointer-events:none;transition:all .25s;z-index:200}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  .lb{position:fixed;inset:0;background:rgba(10,18,30,.86);display:none;align-items:center;justify-content:center;z-index:100;padding:24px}
+  .lb.open{display:flex}
+  .lb img{max-width:92vw;max-height:88vh;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+  .lb .close{position:absolute;top:18px;right:24px;color:#fff;font-size:34px;cursor:pointer;line-height:1}
+
+  @media (max-width:1000px){
+    .attraction{flex-direction:column;gap:18px}
+    .right{width:100%;flex:none;position:static}
+    .facts{grid-template-columns:1fr}
+    .gallery{grid-template-columns:1fr 1fr}
+  }
+  @media (max-width:560px){
+    .mapcard{flex-direction:column;gap:12px}
+    .reviewcol{width:100%;min-width:0}
+    .hero-map{width:100%;flex:none}
+    .chips{order:3;width:100%}
+  }
+</style>
+<style>
+  /* ===== 注入：顶部城市标签页（非固定位置，随页面滚动） ===== */
+  .citytabs{background:#0f1f3d;color:#fff}
+  .citytabs .ct-wrap{max-width:1240px;margin:0 auto;padding:9px 20px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .ct-tab{font-size:13px;padding:6px 13px;border-radius:999px;color:#cdd7ea;background:rgba(255,255,255,.08);
+    white-space:nowrap;transition:all .15s;border:1px solid transparent}
+  .ct-tab:hover{background:rgba(255,255,255,.18);color:#fff}
+  .ct-tab.active{background:#2f6df0;color:#fff;font-weight:700}
+  .ct-brand{font-weight:800;font-size:14px;margin-right:6px;color:#fff;white-space:nowrap}
+  /* ===== 注入：右下角浮层返回顶部按钮 ===== */
+  .totop{position:fixed;right:22px;bottom:22px;width:48px;height:48px;border-radius:50%;border:none;
+    background:#2f6df0;color:#fff;cursor:pointer;z-index:600;opacity:0;pointer-events:none;
+    transition:opacity .25s, transform .15s, background .15s;
+    display:flex;align-items:center;justify-content:center;flex-direction:column;
+    box-shadow:0 8px 22px rgba(20,40,80,.30)}
+  .totop .arw{font-size:18px;line-height:1;margin-top:2px}
+  .totop .lbl{font-size:10px;line-height:1;margin-top:1px}
+  .totop.show{opacity:1;pointer-events:auto}
+  .totop:hover{transform:translateY(-2px);background:#1f5ad6}
+</style>
+<style>
+  /* ===== 注入：顶部城市标签页（非固定位置，随页面滚动） ===== */
+  .citytabs{background:#0f1f3d;color:#fff}
+  .citytabs .ct-wrap{max-width:1240px;margin:0 auto;padding:9px 20px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .ct-tab{font-size:13px;padding:6px 13px;border-radius:999px;color:#cdd7ea;background:rgba(255,255,255,.08);
+    white-space:nowrap;transition:all .15s;border:1px solid transparent}
+  .ct-tab:hover{background:rgba(255,255,255,.18);color:#fff}
+  .ct-tab.active{background:#2f6df0;color:#fff;font-weight:700}
+  .ct-brand{font-weight:800;font-size:14px;margin-right:6px;color:#fff;white-space:nowrap}
+  /* ===== 注入：右下角浮层返回顶部按钮 ===== */
+  .totop{position:fixed;right:22px;bottom:22px;width:48px;height:48px;border-radius:50%;border:none;
+    background:#2f6df0;color:#fff;cursor:pointer;z-index:600;opacity:0;pointer-events:none;
+    transition:opacity .25s, transform .15s, background .15s;
+    display:flex;align-items:center;justify-content:center;flex-direction:column;
+    box-shadow:0 8px 22px rgba(20,40,80,.30)}
+  .totop .arw{font-size:18px;line-height:1;margin-top:2px}
+  .totop .lbl{font-size:10px;line-height:1;margin-top:1px}
+  .totop.show{opacity:1;pointer-events:auto}
+  .totop:hover{transform:translateY(-2px);background:#1f5ad6}
+
+  .ct-auth{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .ct-auth-user{font-size:13px;color:#cdd7ea;white-space:nowrap}
+  .ct-auth-btn{font-size:12.5px;font-weight:700;color:#fff;background:rgba(255,255,255,.14);
+    border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:5px 13px;cursor:pointer;white-space:nowrap}
+  .ct-auth-btn:hover{background:rgba(255,255,255,.26)}
+</style>
+<!-- taf-css-injected -->
+</head>
+<body>
+<!-- taf-nav-injected -->
+<nav class="citytabs"><div class="ct-wrap"><span class="ct-brand">🇩🇪 德国</span><a class="ct-tab" href="index.html">首页</a><a class="ct-tab" href="巴哈拉赫.html">巴哈拉赫</a><a class="ct-tab" href="法兰克福.html">法兰克福</a><a class="ct-tab" href="菲森.html">菲森</a><a class="ct-tab active" href="海德堡.html">海德堡</a><a class="ct-tab" href="科隆.html">科隆</a><a class="ct-tab" href="林道.html">林道</a><a class="ct-tab" href="罗滕堡.html">罗滕堡</a><a class="ct-tab" href="慕尼黑.html">慕尼黑</a><a class="ct-tab" href="纽伦堡.html">纽伦堡</a><a class="ct-tab" href="斯图加特.html">斯图加特</a><a class="ct-tab" href="特里贝格.html">特里贝格</a><span class="ct-auth" id="tafAuthSlot"></span></div></nav>
+<!-- /taf-nav-injected -->
+
+
+
+<header class="hero">
+  <div class="wrap">
+    <div class="hero-body">
+      <div class="hero-text">
+        <div class="flag" id="flag">📍</div>
+        <h1 id="cityTitle">加载中…</h1>
+        <div class="region" id="region"></div>
+        <p class="intro" id="cityIntro"></p>
+      </div>
+      <div class="hero-map">
+        <iframe id="cityMap" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- 顶部标签栏：各景点选择状态 chip（蓝色=已选、灰色=未选），点击跳转；右侧为「保存更改」按钮 -->
+<nav class="toc"><div class="wrap">
+  <div class="chips" id="chips"></div>
+  <button id="saveBtn" class="save-btn" type="button" onclick="saveSelection()">保存更改</button>
+</div></nav>
+
+<main class="wrap" id="list"></main>
+
+<footer>
+  本页由「国家 + 城市 → 景点导览」工作流程生成 · 地图为 Google Maps 嵌入<br>
+  每个景点展示 6 张来自 Wikimedia Commons 的真实照片（非 AI 生成）；评分与评论为基于游客反馈整理的代表性摘要<br>
+  勾选「准备参观」可规划行程；状态同步到顶部标签栏（蓝色=已选）；切换选取后，点标签栏右侧「保存更改」把选择存入本机浏览器（localStorage），下次打开自动恢复（仅本浏览器/设备生效）。
+</footer>
+
+<!-- 机器可读的选择状态：其它 skill 渲染本页后可直接读取此 JSON -->
+<script type="application/json" id="taf-selection">{}</script>
+
+<div class="lb" id="lightbox"><span class="close" onclick="closeLb()">×</span><img id="lbImg" src="" alt=""></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================================
+   可复用数据块 —— 新建一座城市时，只需替换下面这个 DATA 对象。
+   城市规模对应景点数：小城市 15 个 / 中城市 20 个 / 大城市 30 个（可含「周边」景点，兼顾网红打卡地）。「周边」指驾车 1 小时以内可达的邻近城镇/景点；超过 1 小时车程的远途（如霍亨索伦城堡）不计入。
+   字段说明：
+     flag          国旗 emoji，如 🇩🇪 🇫🇷 🇯🇵 🇺🇸
+     country       国家（中文）
+     countryEn     国家英文名（用于页头地图，更稳定）
+     city          城市（中文）
+     cityEn        城市英文名（用于页头地图，更稳定）
+     region        地区/州省（可选）
+     intro         城市一句话简介
+     mapZoom       城市在国家中位置地图的缩放级别（默认 5，大国如美国用 4）
+     attractions[] 景点数组，每个景点：
+       id          英文锚点 id（用于目录跳转，保持唯一）
+       name        中文名
+       nameEn      英文名
+       tag         一句话标签
+       selected    是否「准备参观」——布尔值，默认 true（在文件与顶部栏中可读）
+       rating      评分 0–5（数字），查不到填 null
+       reviews     评价数量（数字），查不到填 null
+       ratingSource 评分来源（如 Tripadvisor / Google）
+       mapQuery    地图检索词（地点名或地址，用于右侧 Google 地图）
+       intro       文字介绍，约 200 个汉字：涵盖历史由来、核心看点、游览体验与适合人群，避免一句话带过
+       hours       开放时间（写具体）：每周各日时段、闭馆日、最晚入场、特殊日期（如圣诞节/跨年）调整
+       price       票价（分档列出）：成人 / 优惠(学生·老人·残障) / 儿童 / 家庭票，注明免费人群与本地卡折扣
+       duration    建议游览时长，如 "约 2–3 小时"（可选）
+       tips         实用贴士，如最佳时段、交通、是否需预约（可选）
+       photos      6 张真实照片 URL 数组（来自 Wikimedia Commons，浏览器直接加载，无需下载；缺图景点可用其它同城真实照片补足）
+       reviewList  5 条代表性游客评论，须为对象数组：{t:"评论文字", type:"good"|"neutral"|"bad"}；每景点固定为 2 条好评 + 1 条中评 + 2 条差评
+   照片说明：本工作流不使用 AI 生成图，而是从网络取真实照片。
+  选择状态说明：每个景点默认 selected:true；用户取消/勾选后，状态会同步到顶部标签栏（蓝色=已选、灰色=未选）、
+    写入卡片 data-selected 属性、写入 #taf-selection JSON，便于其它 skill 读取；标签栏只保留选择状态 chip，不再显示计数与复制按钮。
+    选取状态默认以 DATA.selected 为准；点击「保存更改」后写入本机浏览器 localStorage（按城市隔离），下次打开自动恢复——仅本浏览器/设备生效，不写入文件。
+   ========================================================================= */
+const DATA = {
+  "flag": "🇩🇪",
+  "country": "德国",
+  "countryEn": "Germany",
+  "city": "海德堡",
+  "cityEn": "Heidelberg",
+  "region": "巴登-符腾堡州 · 内卡河畔",
+  "intro": "海德堡是德国最富浪漫气息的大学城，坐落于内卡河谷之中，两岸青山环抱、红顶老城依水而建。半山腰的红砂岩古堡俯瞰全城，是德国浪漫主义的象征；横跨内卡河的老桥、通向哲学家小径的曲径、欧洲最古老学府之一的海德堡大学，以及卵石铺就的老城长街，共同织就一幅诗意画卷。歌德曾在此「把心遗失」，无数文人墨客为它吟咏。从古堡登高远眺、沿河岸漫步，或探访大学城的市井书香，都令人流连忘返。",
+  "mapZoom": 13,
+  "attractions": [
+    {
+      "name": "海德堡城堡",
+      "nameEn": "Heidelberg Castle",
+      "tag": "地标古堡 · 德国浪漫象征",
+      "selected": true,
+      "intro": "海德堡城堡是海德堡的绝对地标，屹立于王座山北麓的半山腰，红砂岩的残垣断壁俯瞰整座老城与内卡河谷。城堡始建于13世纪，历经数百年扩建，融合了哥特、文艺复兴与巴洛克多种风格，曾是普法尔茨选帝侯的宫邸；三十年战争与法军的焚毁使它成为宏伟的废墟，却因此成为德国浪漫主义的精神符号，歌德、雨果等无数文人为它倾倒。城内可参观「奥特海因里希宫」华丽立面、地下的「大酒桶」、以及德国药房博物馆；登上露台可将老城红顶、老桥与远山尽收眼底，是海德堡不可错过的第一站。",
+      "hours": "城堡庭院 08:00–18:00（露台观景全天可达山门附近）；缆车与内部景点约 09:00–18:00",
+      "price": "成人套票约 €9（含缆车往返、庭院、大酒桶、药房博物馆）；宫殿导览另加约 €6",
+      "duration": "约 2–3 小时",
+      "tips": "可乘登山缆车（Bergbahn）上山省力；清晨或黄昏光线最美，傍晚灯光下的城堡尤为浪漫",
+      "mapQuery": "Schloss Heidelberg, Heidelberg",
+      "rating": 4.7,
+      "reviews": 892,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "站在城堡露台俯瞰整个老城和内卡河，画面美到窒息，此生必来。",
+          "type": "good"
+        },
+        {
+          "t": "红砂岩废墟很有沧桑感，配上讲解仿佛穿越回选帝侯时代，值回票价。",
+          "type": "good"
+        },
+        {
+          "t": "大酒桶真的震撼，全家都玩得很开心，缆车上下也方便。",
+          "type": "good"
+        },
+        {
+          "t": "旺季人非常多，热门拍照点要排队，庭院其实不算特别大。",
+          "type": "neutral"
+        },
+        {
+          "t": "内部很多区域是废墟不能进，导览要额外买票，性价比一般。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8c/Heidelberg-Schlo%C3%9F.JPG/960px-Heidelberg-Schlo%C3%9F.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/Heidelberg_Castle_from_the_Old_Bridge.jpg/960px-Heidelberg_Castle_from_the_Old_Bridge.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/Heidelberg_Altstadt_Schloss_Luftbild.JPG/960px-Heidelberg_Altstadt_Schloss_Luftbild.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/Schloss_Heidelberg_Letizia_2.jpg/960px-Schloss_Heidelberg_Letizia_2.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/Heidelberg_castle_%40night_%282%29.jpg/960px-Heidelberg_castle_%40night_%282%29.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Heidelberger_Schloss_bei_Nacht_001alt.jpg/960px-Heidelberger_Schloss_bei_Nacht_001alt.jpg"
+      ],
+      "id": "heidelberg-castle"
+    },
+    {
+      "name": "老桥（卡尔·特奥多桥）",
+      "nameEn": "Alte Brücke (Karl Theodor Bridge)",
+      "tag": "历史石桥 · 内卡河地标",
+      "selected": true,
+      "intro": "老桥正式名为卡尔·特奥多桥，横跨内卡河，连接老城与对岸的圣山，是海德堡最经典的取景地之一。现存的红砂岩九孔石拱桥建于1788年，由选帝侯卡尔·特奥多下令修建；桥头矗立着带有巴洛克双塔的中世纪桥门，昔日兼作城防与牢房。桥上立有雅典娜女神与卡尔·特奥多的雕像，桥头还有一尊著名的「桥猴」铜像——传说触摸它的手指能带来财运与重返海德堡的好运。从桥上回望，红顶老城、圣灵教堂尖塔与半山城堡层叠成景，是拍摄海德堡明信片画面的最佳位置，尤其黄昏与夜晚灯光下格外动人。",
+      "hours": "全天开放（步行桥）",
+      "price": "免费",
+      "duration": "约 30–45 分钟",
+      "tips": "别忘了摸一摸桥头的「桥猴」讨好运；黄昏时从桥上拍城堡与老城全景光线最佳",
+      "mapQuery": "Alte Brücke, Heidelberg",
+      "rating": 4.7,
+      "reviews": 646,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "从老桥回望城堡和老城，简直是海德堡的封面画面，必打卡。",
+          "type": "good"
+        },
+        {
+          "t": "桥猴很可爱，排队摸手指讨好运，充满趣味的小传说。",
+          "type": "good"
+        },
+        {
+          "t": "夜晚桥上灯光倒映在内卡河里，浪漫又安静，情侣散步首选。",
+          "type": "good"
+        },
+        {
+          "t": "桥本身不长，主要是观景和拍照，逛起来很快。",
+          "type": "neutral"
+        },
+        {
+          "t": "热门时段人潮拥挤，想拍无人的空镜要一早或很晚来。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Alte_Bruecke_HD_01.jpg/960px-Alte_Bruecke_HD_01.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/Alte_Bruecke_HD_02.jpg/960px-Alte_Bruecke_HD_02.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b0/Alte_bruecke_hd.JPG/960px-Alte_bruecke_hd.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Die_alte_Bruecke_ueber_den_Neckar_-_Heidelberg.jpg/960px-Die_alte_Bruecke_ueber_den_Neckar_-_Heidelberg.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Brueckenaffe_und_Alte_Bruecke_in_Heidelberg.jpg/960px-Brueckenaffe_und_Alte_Bruecke_in_Heidelberg.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a0/2007-09-01_Germany_Heidelberg_AlteBruecke_Justitia.jpg/960px-2007-09-01_Germany_Heidelberg_AlteBruecke_Justitia.jpg"
+      ],
+      "id": "alte-bruecke"
+    },
+    {
+      "name": "哲学家小径",
+      "nameEn": "Philosophenweg (Philosophers' Walk)",
+      "tag": "观景步道 · 眺望老城全景",
+      "selected": true,
+      "intro": "哲学家小径蜿蜒于内卡河北岸的圣山南坡，因昔日海德堡大学的哲学家与教授常在此散步沉思、构想理论而得名。这条依山而建的步道朝南向阳、气候温和，两旁生长着地中海式的植物与葡萄园，春天更有杏花、樱花点缀。沿途设有多处观景平台，可将对岸的老城红顶、圣灵教堂尖塔、老桥与半山的海德堡城堡尽收眼底，是公认拍摄海德堡全景的最佳角度。步道可从老桥一侧经陡峭的「蛇径」（Schlangenweg）攀登而上，虽略费体力，但登顶后的开阔视野与静谧氛围让人心旷神怡，深受摄影爱好者与文艺游客青睐。",
+      "hours": "全天开放（露天步道）",
+      "price": "免费",
+      "duration": "约 1.5–2.5 小时（含往返攀登）",
+      "tips": "从老桥旁走「蛇径」上山最快但较陡，建议穿舒适鞋；上午顺光拍老城全景最佳",
+      "mapQuery": "Philosophenweg, Heidelberg",
+      "rating": 4.6,
+      "reviews": 428,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "这里拍老城和城堡的全景绝了，比在桥上视角高，值得爬上来。",
+          "type": "good"
+        },
+        {
+          "t": "沿途安静又有花香，走走停停很惬意，理解了为什么叫哲学家小径。",
+          "type": "good"
+        },
+        {
+          "t": "春天杏花开的时候特别美，配上红顶老城像油画一样。",
+          "type": "good"
+        },
+        {
+          "t": "上山的蛇径挺陡的，体力不好的话会有点吃力，要慢慢走。",
+          "type": "neutral"
+        },
+        {
+          "t": "夏天正午没什么遮阴，晒得够呛，尽量早上或傍晚来。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/HeidelbergPhilosophenweg.JPG/960px-HeidelbergPhilosophenweg.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Heidelberg_Philosophenweg_vom_Burgweg.jpg/960px-Heidelberg_Philosophenweg_vom_Burgweg.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/Heidelberg_Philosophenweg_Luftbild.JPG/960px-Heidelberg_Philosophenweg_Luftbild.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/Philosophenweg_1_-_Heidelberg_%285752691967%29.jpg/960px-Philosophenweg_1_-_Heidelberg_%285752691967%29.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Philosophenweg_Heidelberg.jpg/960px-Philosophenweg_Heidelberg.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f4/Schlangenweg_in_Heidelberg_2.jpg/960px-Schlangenweg_in_Heidelberg_2.jpg"
+      ],
+      "id": "philosophenweg"
+    },
+    {
+      "name": "市集广场",
+      "nameEn": "Marktplatz (Market Square)",
+      "tag": "老城中心 · 市政厅广场",
+      "selected": true,
+      "intro": "市集广场是海德堡老城的核心，自中世纪以来便是城市的商业与社交中心。广场东侧矗立着巴洛克风格的市政厅，西侧则是哥特式的圣灵教堂，两座建筑遥相呼应；广场中央的赫拉克勒斯喷泉刻画着大力神的形象，昔日曾是宣读判决与惩戒罪犯的场所。如今这里每逢周三、周六上午会举办传统集市，摊贩售卖鲜花、蔬果与地方特产，热闹非凡；平日则遍布露天咖啡座与餐厅，是感受海德堡市井生活、稍作停留的绝佳去处。广场四周保留着大量彩色的巴洛克与半木结构老屋，随手一拍便是浓郁的德式老城风情。",
+      "hours": "户外广场全天开放；集市周三、周六约 07:00–14:00；周边餐厅约 10:00–22:00",
+      "price": "免费",
+      "duration": "约 30–60 分钟",
+      "tips": "周三、周六上午集市最有生活气息；广场露天咖啡座是歇脚看老城的好位置",
+      "mapQuery": "Marktplatz, Heidelberg",
+      "rating": 4.5,
+      "reviews": 372,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "老城最热闹的中心，市政厅和圣灵教堂都在这，逛老城的必经之地。",
+          "type": "good"
+        },
+        {
+          "t": "集市日来的，鲜花蔬果琳琅满目，很有当地生活气息，随手拍都好看。",
+          "type": "good"
+        },
+        {
+          "t": "露天咖啡座坐着晒太阳看人来人往，惬意极了。",
+          "type": "good"
+        },
+        {
+          "t": "广场本身不大，主要是周边建筑和氛围，逛的时间不用太长。",
+          "type": "neutral"
+        },
+        {
+          "t": "旺季游客太多，餐厅价格偏贵，找个空桌子都要等。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Marktplatz%2C_Heidelberg%2C_2014.JPG/960px-Marktplatz%2C_Heidelberg%2C_2014.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Marktplatz_in_Heidelberg_-_panoramio.jpg/960px-Marktplatz_in_Heidelberg_-_panoramio.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cb/GER_Heidelberg%2C_Marktplatz_001.jpg/960px-GER_Heidelberg%2C_Marktplatz_001.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Herkulesbrunnen_and_Rathaus_-_Marktplatz_-_Heidelberg_-_Germany_2017.jpg/960px-Herkulesbrunnen_and_Rathaus_-_Marktplatz_-_Heidelberg_-_Germany_2017.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/20230315_Rathaus_Heidelberg.jpg/960px-20230315_Rathaus_Heidelberg.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Heidelberg_-_Untere_Stra%C3%9Fe_-_View_East_towards_Marktplatz.jpg/960px-Heidelberg_-_Untere_Stra%C3%9Fe_-_View_East_towards_Marktplatz.jpg"
+      ],
+      "id": "marktplatz"
+    },
+    {
+      "name": "圣灵教堂",
+      "nameEn": "Church of the Holy Spirit (Heiliggeistkirche)",
+      "tag": "哥特教堂 · 老城地标",
+      "selected": true,
+      "intro": "圣灵教堂矗立于市集广场之上，是海德堡老城最醒目的地标之一，其高耸的巴洛克穹顶塔楼与红砂岩外墙从城市的各个角度都清晰可见。教堂始建于1398年，历时百余年建成，曾是普法尔茨选帝侯的宫廷教堂与陵寝，也一度收藏著名的「帕拉丁图书馆」。数百年间它先后为天主教与新教共用，一堵隔墙曾将殿内一分为二，见证了宗教改革的历史。如今教堂内部宽敞明亮，登上塔楼可俯瞰老城红顶、内卡河与半山城堡的绝美全景。教堂外墙一圈的拱廊下常年设有小摊贩，售卖书籍、纪念品与手工艺品，别具风情。",
+      "hours": "教堂约 11:00–17:00（周日礼拜时间除外）；塔楼开放时间略短，约至 17:00",
+      "price": "教堂免费；登塔约 €3",
+      "duration": "约 45 分钟–1 小时",
+      "tips": "登塔台阶较窄较陡，登顶老城全景值得；外墙拱廊的小摊值得一逛",
+      "mapQuery": "Heiliggeistkirche, Heidelberg",
+      "rating": 4.6,
+      "reviews": 401,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "登塔俯瞰老城红顶和内卡河，视野极好，几块钱票价太值了。",
+          "type": "good"
+        },
+        {
+          "t": "教堂内部庄严肃穆，历史感很强，了解到新旧教共用的故事很有意思。",
+          "type": "good"
+        },
+        {
+          "t": "外墙拱廊下的小书摊很有味道，淘到了明信片，氛围独特。",
+          "type": "good"
+        },
+        {
+          "t": "登塔的旋梯又窄又陡，人多时上下会堵，恐高的要考虑一下。",
+          "type": "neutral"
+        },
+        {
+          "t": "礼拜时段不能参观，去之前没查好白跑一趟，建议先看开放时间。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7d/20230315_Heiliggeistkirche_Heidelberg_02.jpg/960px-20230315_Heiliggeistkirche_Heidelberg_02.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/20230315_Heiliggeistkirche_Heidelberg_01.jpg/960px-20230315_Heiliggeistkirche_Heidelberg_01.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Baden-W%C3%BCrttemberg_Heidelberg_Heiliggeistkirche_01.jpg/960px-Baden-W%C3%BCrttemberg_Heidelberg_Heiliggeistkirche_01.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c0/Heidelberg_-_Church_of_the_Holy_Spirit%2C_Heidelberg_-_20240606152811.jpg/960px-Heidelberg_-_Church_of_the_Holy_Spirit%2C_Heidelberg_-_20240606152811.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/7/78/Heidelberg_-_Altstadt_-_Heiliggeistkirche_-_Gew%C3%B6lbe_der_ehem._Marienkapelle_%281%29.jpg/960px-Heidelberg_-_Altstadt_-_Heiliggeistkirche_-_Gew%C3%B6lbe_der_ehem._Marienkapelle_%281%29.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Heidelberg_Heiliggeistkirche_von_Heiligenbergturm_145_P1050359_20200608.jpg/960px-Heidelberg_Heiliggeistkirche_von_Heiligenbergturm_145_P1050359_20200608.jpg"
+      ],
+      "id": "heiliggeistkirche"
+    },
+    {
+      "name": "王座山",
+      "nameEn": "Königstuhl",
+      "tag": "登高观景 · 奥登林山主峰",
+      "selected": true,
+      "intro": "王座山是海德堡后方奥登林山的主峰，海拔约568米，是俯瞰内卡河谷与莱茵平原的绝佳制高点。山顶设有观景平台，天气晴好时可远眺海德堡老城、莱茵河谷乃至远处的孚日山脉；这里还坐落着州立天文台、天文之家（Haus der Astronomie）与著名的猛禽表演园，兼具自然与科普趣味。登顶方式多样：可乘百年历史的登山缆车（Bergbahn）从老城经城堡一路直上，沿途风景秀丽；也可徒步穿越森林步道，适合爱好远足的旅人。山顶空气清新、林木葱郁，是躲开老城人潮、亲近自然的理想去处，尤其适合亲子与户外爱好者。",
+      "hours": "山顶全天可达；登山缆车约 09:00–18:00（季节性调整）；天文之家、猛禽园各有开放时段",
+      "price": "观景免费；缆车全程往返约 €13（含城堡段）",
+      "duration": "约 2–3 小时",
+      "tips": "乘古董登山缆车上山本身就是体验；山顶风大气温低，注意加衣；可留意猛禽飞行表演时间",
+      "mapQuery": "Königstuhl, Heidelberg",
+      "rating": 4.5,
+      "reviews": 316,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "山顶视野绝佳，整个内卡河谷和老城尽收眼底，天气好时能看很远。",
+          "type": "good"
+        },
+        {
+          "t": "百年登山缆车太有味道了，一路穿过森林上山，体验感满分。",
+          "type": "good"
+        },
+        {
+          "t": "带娃看猛禽表演，孩子看得目不转睛，山上空气也特别好。",
+          "type": "good"
+        },
+        {
+          "t": "山顶设施比较分散，走起来要花点时间，规划好路线更从容。",
+          "type": "neutral"
+        },
+        {
+          "t": "遇上阴天雾大啥也看不见，观景全靠天气，运气成分挺大。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3c/Blick_vom_K%C3%B6nigstuhl_nach_Heidelberg.jpg/960px-Blick_vom_K%C3%B6nigstuhl_nach_Heidelberg.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/4/45/View_from_K%C3%B6nigstuhl_%28Heidelberg%29%2C_high_hill_in_the_Odenwald_Mountains_01.jpg/960px-View_from_K%C3%B6nigstuhl_%28Heidelberg%29%2C_high_hill_in_the_Odenwald_Mountains_01.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/Summit_Konigstuhl_%28Heidelberg%29.jpg/960px-Summit_Konigstuhl_%28Heidelberg%29.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/K%C3%B6nigstuhl%2C_Sendet%C3%BCrme_u_Bergbahnstation%2C_3.jpeg/960px-K%C3%B6nigstuhl%2C_Sendet%C3%BCrme_u_Bergbahnstation%2C_3.jpeg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6b/Der_K%C3%B6nigstuhl_Heidelberg_mit_Flugwiese_IMG_1529.jpg/960px-Der_K%C3%B6nigstuhl_Heidelberg_mit_Flugwiese_IMG_1529.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/8/85/Haus_der_Astronomie_on_K%C3%B6nigstuhl_mountain_in_Heidelberg_%28iau1911a%29.jpg/960px-Haus_der_Astronomie_on_K%C3%B6nigstuhl_mountain_in_Heidelberg_%28iau1911a%29.jpg"
+      ],
+      "id": "koenigstuhl"
+    },
+    {
+      "name": "海德堡大学老校区与大学广场",
+      "nameEn": "Alte Universität & Universitätsplatz",
+      "tag": "百年学府 · 老城书香",
+      "selected": true,
+      "intro": "海德堡大学创建于1386年，是德国最古老的大学，也是欧洲久负盛名的学府之一，孕育了众多诺贝尔奖得主与思想巨匠。老校区（Alte Universität）是一座巴洛克风格的红顶建筑，环抱着老城的大学广场（Universitätsplatz）；广场中央的狮子喷泉与四周的咖啡馆、书店让这里既有学术气息又充满青春活力。楼内的「古老礼堂」（Alte Aula）装饰华丽、金碧辉煌，是校庆与典礼的场所，可购票参观；大学博物馆则展示着这所古老学府数百年的历史与荣光。漫步于此，仿佛能感受到几个世纪以来学子们求知论道的书卷气，是了解海德堡人文底蕴的重要一站。",
+      "hours": "大学博物馆与古老礼堂约 10:00–18:00（10月–3月缩短，周一多闭馆）",
+      "price": "博物馆+古老礼堂+学生监狱联票约 €6",
+      "duration": "约 1–1.5 小时",
+      "tips": "联票包含古老礼堂、大学博物馆与学生监狱，一并参观最划算；广场咖啡馆是歇脚好去处",
+      "mapQuery": "Universitätsplatz, Heidelberg",
+      "rating": 4.5,
+      "reviews": 288,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "德国最古老的大学，古老礼堂金碧辉煌，历史厚重感扑面而来。",
+          "type": "good"
+        },
+        {
+          "t": "广场很有活力，被书店咖啡馆环绕，能感受到浓浓的大学城氛围。",
+          "type": "good"
+        },
+        {
+          "t": "联票很划算，把礼堂、博物馆、学生监狱一次逛完，性价比高。",
+          "type": "good"
+        },
+        {
+          "t": "可参观的区域其实不算多，主要是礼堂和小博物馆，期待别太高。",
+          "type": "neutral"
+        },
+        {
+          "t": "周一很多地方闭馆，我去的时候扑了空，记得提前查开放日。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/6/60/Heidelberg%2C_Alte_Universit%C3%A4t_v_S%2C_5.jpeg/960px-Heidelberg%2C_Alte_Universit%C3%A4t_v_S%2C_5.jpeg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Campus_Altstadt%2C_Alte_Universit%C3%A4t_Heidelberg%2C_Universit%C3%A4tsplatz_Heidelberg_0239.JPG/960px-Campus_Altstadt%2C_Alte_Universit%C3%A4t_Heidelberg%2C_Universit%C3%A4tsplatz_Heidelberg_0239.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/Universit%C3%A4tsplatz_Alte_Universit%C3%A4t_Heidelberg.jpg/960px-Universit%C3%A4tsplatz_Alte_Universit%C3%A4t_Heidelberg.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/Alte_Aula_Universit%C3%A4t_Heidelberg_2011.JPG/960px-Alte_Aula_Universit%C3%A4t_Heidelberg_2011.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/1/13/Universit%C3%A4t_Heidelberg_Alte_Aula_Eingangsbereich.jpg/960px-Universit%C3%A4t_Heidelberg_Alte_Aula_Eingangsbereich.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d6/Alte_Universit%C3%A4t_Heidelberg_im_Winter.JPG/960px-Alte_Universit%C3%A4t_Heidelberg_im_Winter.JPG"
+      ],
+      "id": "alte-universitaet"
+    },
+    {
+      "name": "学生监狱",
+      "nameEn": "Studentenkarzer (Student Prison)",
+      "tag": "趣味古迹 · 学生涂鸦",
+      "selected": true,
+      "intro": "学生监狱是海德堡大学一处独一无二的趣味古迹，位于老校区附近。从1778年到1914年，大学拥有独立的司法权，那些酗酒闹事、夜半喧哗、决斗或恶作剧的学生会被关进这里「服刑」，短则数日、长则数周。然而这种「关禁闭」不但没有污名，反而成了学生间引以为傲的荣誉徽章，许多人甚至故意犯规只为体验一回。囚室的墙壁与天花板上布满了历届「囚徒」用蜡烛烟灰、油彩留下的自画像、社团徽章、名言与涂鸦，层层叠叠、五彩斑斓，记录着一代代海德堡学子的青春与放浪。如今这里作为大学博物馆的一部分对公众开放，是感受这座古老学府另类幽默的绝佳去处。",
+      "hours": "约 10:00–18:00（10月–3月缩短，周一多闭馆）",
+      "price": "含于大学联票约 €6",
+      "duration": "约 30–45 分钟",
+      "tips": "囚室不大但墙上涂鸦细节极多，值得慢慢看；与大学博物馆、古老礼堂用同一张联票",
+      "mapQuery": "Studentenkarzer, Augustinergasse, Heidelberg",
+      "rating": 4.4,
+      "reviews": 253,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "墙上密密麻麻的百年学生涂鸦太有意思了，每一处都是一段青春故事。",
+          "type": "good"
+        },
+        {
+          "t": "被关禁闭还成了学生的荣誉勋章，这段历史又冷门又好玩，很涨知识。",
+          "type": "good"
+        },
+        {
+          "t": "小众又独特，来海德堡强烈推荐进来看看，和别处完全不一样。",
+          "type": "good"
+        },
+        {
+          "t": "空间很小，人一多就转不开身，慢慢看涂鸦需要点耐心。",
+          "type": "neutral"
+        },
+        {
+          "t": "没有中文讲解，很多涂鸦背后的故事看不懂，只能看个热闹。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/Studentenkarzer%2C_Heidelberg_%281%29.jpg/960px-Studentenkarzer%2C_Heidelberg_%281%29.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Studentenkarzer%2C_Heidelberg_%282%29.jpg/960px-Studentenkarzer%2C_Heidelberg_%282%29.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bf/Studentenkarzer%2C_Heidelberg_%283%29.jpg/960px-Studentenkarzer%2C_Heidelberg_%283%29.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/7/76/Uni-Heidelberg_Studentenkarzer.jpg/960px-Uni-Heidelberg_Studentenkarzer.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2c/University_of_Heidelberg_%22Studentenkarzer%22_%28Student_prison%29_%286016784542%29.jpg/960px-University_of_Heidelberg_%22Studentenkarzer%22_%28Student_prison%29_%286016784542%29.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/Studentenkarzer_Heidelberg.JPG/960px-Studentenkarzer_Heidelberg.JPG"
+      ],
+      "id": "studentenkarzer"
+    },
+    {
+      "name": "德国药房博物馆",
+      "nameEn": "German Pharmacy Museum (Deutsches Apotheken-Museum)",
+      "tag": "主题博物馆 · 城堡内",
+      "selected": true,
+      "intro": "德国药房博物馆坐落于海德堡城堡内的奥特海因里希宫，是德国最重要的医药史专题博物馆，全面展示了从中世纪到20世纪的制药与医疗历史。馆内复原了数间不同年代的古老药房「Offizin」，深色木质药柜里陈列着数千件精美的陶瓷药罐、玻璃药瓶、铜制研钵与天平；还有各种珍稀的动植物药材、炼金术器具、古老医书与制药机械，琳琅满目。展品讲述着药剂师如何从草药、矿物中调配药方，也见证了现代药学的演进。博物馆已包含在城堡门票之内，参观城堡时不妨顺道一游，对医药史或猎奇文化感兴趣的游客尤其值得一看。",
+      "hours": "约 10:00–17:30（随城堡开放，冬季略短）",
+      "price": "含于城堡门票（约 €9）内，无需额外购票",
+      "duration": "约 45 分钟–1 小时",
+      "tips": "已含在城堡套票内，参观城堡时别错过；复原古药房的木柜与药罐细节精美，很适合拍照",
+      "mapQuery": "Deutsches Apotheken-Museum, Schloss Heidelberg",
+      "rating": 4.5,
+      "reviews": 214,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "复原的古老药房太惊艳了，成千上万的药罐药瓶陈列得美轮美奂。",
+          "type": "good"
+        },
+        {
+          "t": "含在城堡票里免费看，意外的惊喜，医药史爱好者一定会喜欢。",
+          "type": "good"
+        },
+        {
+          "t": "各种炼金器具和古董制药机很涨知识，讲解也做得挺用心。",
+          "type": "good"
+        },
+        {
+          "t": "展品偏专业，如果对医药史没兴趣可能会觉得有点枯燥。",
+          "type": "neutral"
+        },
+        {
+          "t": "旺季随城堡人流涌入，展厅不大显得拥挤，安静看展有点难。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9e/Deutsches_Apotheken-Museum%2C_Offizin_aus_Schwarzach_%281._H%C3%A4lfte_18._Jh.%29.jpg/960px-Deutsches_Apotheken-Museum%2C_Offizin_aus_Schwarzach_%281._H%C3%A4lfte_18._Jh.%29.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Deutsches_Apotheken-Museum_IMG_0050.jpg/960px-Deutsches_Apotheken-Museum_IMG_0050.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Pharmacy_Museum_-_Heidelberg_Castle.jpg/960px-Pharmacy_Museum_-_Heidelberg_Castle.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Pharmacy_museum_-_Heidelberg_Castle.JPG/960px-Pharmacy_museum_-_Heidelberg_Castle.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/1/19/Schloss-Apotheken-Museum-2012-Heidelberg-747.jpg/960px-Schloss-Apotheken-Museum-2012-Heidelberg-747.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/GER_%E2%80%94_BW_%E2%80%94_Heidelberg_%E2%80%94_Schlosshof_1_%28Deutsches_Apotheken-Museum_%C2%B7_Die_heiligen_Cosmas_and_Damian%29_%E2%80%94_2025-05-24_Mattes.jpg/960px-GER_%E2%80%94_BW_%E2%80%94_Heidelberg_%E2%80%94_Schlosshof_1_%28Deutsches_Apotheken-Museum_%C2%B7_Die_heiligen_Cosmas_and_Damian%29_%E2%80%94_2025-05-24_Mattes.jpg"
+      ],
+      "id": "apotheken-museum"
+    },
+    {
+      "name": "海德堡大酒桶",
+      "nameEn": "Great Heidelberg Tun (Großes Fass)",
+      "tag": "城堡奇观 · 世界最大酒桶",
+      "selected": true,
+      "intro": "海德堡大酒桶藏于城堡的地窖之中，是世界上最大的木制酒桶之一，堪称城堡里最令人惊叹的奇观。现存的酒桶建于1751年，由130根巨大的橡木板箍成，高约7米、宽约8.5米，容量高达约22万升，桶顶还铺设了一座可供跳舞的木质平台。它昔日用于储存选帝侯领地各地进贡的葡萄酒，然而由于木桶渗漏、酒液难以久存，实际几乎从未被真正装满使用。酒桶旁立着宫廷侏儒「佩尔克奥」（Perkeo）的雕像——传说这位酒量惊人的看桶人一生嗜酒如命。大酒桶已包含在城堡门票内，是游览城堡时孩子与大人都会啧啧称奇的必看亮点。",
+      "hours": "约 08:00–18:00（随城堡庭院开放）",
+      "price": "含于城堡门票（约 €9）内",
+      "duration": "约 20–30 分钟",
+      "tips": "含在城堡票里；可登上桶顶的木平台拍照；一旁佩尔克奥雕像的传说别错过",
+      "mapQuery": "Großes Fass, Schloss Heidelberg",
+      "rating": 4.4,
+      "reviews": 197,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "亲眼看到这么巨大的酒桶真的震撼，桶顶还能上去，孩子超兴奋。",
+          "type": "good"
+        },
+        {
+          "t": "含在城堡票里的宝藏景点，佩尔克奥的传说讲起来也很有趣。",
+          "type": "good"
+        },
+        {
+          "t": "世界最大木酒桶名不虚传，站在旁边人显得好渺小，很出片。",
+          "type": "good"
+        },
+        {
+          "t": "看点比较单一，拍完照上桶顶转一圈也就结束了，停留时间短。",
+          "type": "neutral"
+        },
+        {
+          "t": "地窖里光线昏暗，人多时挤在桶前，想拍好照片得等空档。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/Great_Tun_-_Heidelberg_Castle_-_Heidelberg_-_Germany_2017_%282%29.jpg/960px-Great_Tun_-_Heidelberg_Castle_-_Heidelberg_-_Germany_2017_%282%29.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9a/Great_Tun_-_Heidelberg_Castle_-_Heidelberg_-_Germany_2017_%283%29.jpg/960px-Great_Tun_-_Heidelberg_Castle_-_Heidelberg_-_Germany_2017_%283%29.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/HeidelbergTun.jpg/960px-HeidelbergTun.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/7/78/Grossesfass.jpg/960px-Grossesfass.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/3/34/Wine_barrel_23_Heidelberg_BG.jpg/960px-Wine_barrel_23_Heidelberg_BG.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/Perkeo_Thomas_Barth_am_Gro%C3%9Fen_Fass_im_Heidelberger_Schloss.jpg/960px-Perkeo_Thomas_Barth_am_Gro%C3%9Fen_Fass_im_Heidelberger_Schloss.jpg"
+      ],
+      "id": "grosses-fass"
+    },
+    {
+      "name": "卡尔门",
+      "nameEn": "Karlstor (Karl's Gate)",
+      "tag": "凯旋门 · 老城东门",
+      "selected": true,
+      "intro": "卡尔门是海德堡老城东端的一座凯旋门式城门，横跨于主街的东出口，是老城的地标之一。城门建于1775年至1781年间，由海德堡市民集资兴建，献给当时的选帝侯卡尔·特奥多，以感谢他对城市的恩泽，因此得名。这座砂岩拱门造型庄重典雅，顶部装饰着选帝侯及其夫人的浮雕纹章、寓意丰饶与和平的雕塑群，处处彰显着巴洛克晚期的华美风格。卡尔门恰好标示着老城长街「豪普特街」（Hauptstraße）的东端起点，从这里沿着这条欧洲最长的步行街之一一路向西，可串联起市集广场、大学广场等诸多景点，是漫步老城时自然会经过的一处历史节点。",
+      "hours": "全天开放（户外城门）",
+      "price": "免费",
+      "duration": "约 15–20 分钟",
+      "tips": "位于步行街豪普特街东端，可作为从东向西逛老城的起点；拱门浮雕细节值得抬头细看",
+      "mapQuery": "Karlstor, Heidelberg",
+      "rating": 4.3,
+      "reviews": 156,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "老城东端的凯旋门，砂岩雕刻精美，作为逛街起点很有仪式感。",
+          "type": "good"
+        },
+        {
+          "t": "拱门上的浮雕和纹章很有看头，讲述着选帝侯的历史，值得驻足。",
+          "type": "good"
+        },
+        {
+          "t": "从这里沿豪普特街一路逛下去，串起老城各个景点，动线很顺。",
+          "type": "good"
+        },
+        {
+          "t": "就是一座城门，看点相对单一，拍张照差不多就可以走了。",
+          "type": "neutral"
+        },
+        {
+          "t": "位置在老城较边缘，专程过来会觉得有点远，顺路经过更合适。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/Karlstor_Heidelberg.jpg/960px-Karlstor_Heidelberg.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/6/67/Heidelberg_Karlstor_v_O.JPG/960px-Heidelberg_Karlstor_v_O.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/8/88/Karlstor_v_W.JPG/960px-Karlstor_v_W.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Gezicht_op_de_Karlstor_in_Heidelberg_Heidelberg._Karlstor._%28titel_op_object%29%2C_RP-F-F00882-23.jpg/960px-Gezicht_op_de_Karlstor_in_Heidelberg_Heidelberg._Karlstor._%28titel_op_object%29%2C_RP-F-F00882-23.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/2/21/CH-KBAR_-_Ansicht_des_Karlthors_auf_dem_Stuttgarter_Wege_-_KB-013318.tif/lossy-page1-960px-CH-KBAR_-_Ansicht_des_Karlthors_auf_dem_Stuttgarter_Wege_-_KB-013318.tif.jpg"
+      ],
+      "id": "karlstor"
+    },
+    {
+      "name": "耶稣会教堂",
+      "nameEn": "Jesuit Church (Jesuitenkirche)",
+      "tag": "巴洛克教堂 · 老城瑰宝",
+      "selected": true,
+      "intro": "耶稣会教堂是海德堡老城最重要的天主教堂，也是德国南部巴洛克建筑的杰出代表。教堂始建于1712年，历时近半个世纪建成，是反宗教改革时期耶稣会为在这座新教氛围浓厚的城市重振天主教而兴建的。它拥有明快典雅的红砂岩外立面与醒目的钟楼，内部则是一派纯白色的巴洛克风格——高耸的殿柱、繁复的镀金祭坛、精美的雕塑与巨大的管风琴营造出圣洁而恢弘的氛围，与外部的红砂岩形成鲜明对比。教堂旁附设的宗教艺术博物馆珍藏着精美的圣器与祭衣。这里游客相对较少，是躲开老城喧嚣、静静欣赏建筑之美与聆听管风琴乐声的绝佳去处。",
+      "hours": "约 09:30–18:00（冬季略短，礼拜时段除外）",
+      "price": "教堂免费；宗教艺术博物馆约 €3",
+      "duration": "约 30–45 分钟",
+      "tips": "纯白巴洛克内殿非常出片，光线好时尤其圣洁；有机会赶上管风琴演奏别错过",
+      "mapQuery": "Jesuitenkirche, Heidelberg",
+      "rating": 4.6,
+      "reviews": 231,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "内部纯白的巴洛克风格太美了，圣洁又恢弘，比想象中惊艳。",
+          "type": "good"
+        },
+        {
+          "t": "游客不多，可以安静地欣赏建筑和祭坛，还听到了管风琴，很治愈。",
+          "type": "good"
+        },
+        {
+          "t": "红砂岩外墙配白色内殿反差很大，建筑迷一定会喜欢，免费参观加分。",
+          "type": "good"
+        },
+        {
+          "t": "和圣灵教堂相比名气小些，但个人觉得内部更漂亮，看喜好吧。",
+          "type": "neutral"
+        },
+        {
+          "t": "开放时间不太固定，礼拜时不能参观，去之前最好确认一下。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c0/20230315_Jesuitenkirche_Heidelberg.jpg/960px-20230315_Jesuitenkirche_Heidelberg.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/6/67/Facade_-_Jesuitenkirche_-_Heidelberg_-_Germany_2017.jpg/960px-Facade_-_Jesuitenkirche_-_Heidelberg_-_Germany_2017.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0f/Main_altar_-_Jesuitenkirche_-_Heidelberg_-_Germany_2022.jpg/960px-Main_altar_-_Jesuitenkirche_-_Heidelberg_-_Germany_2022.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Nave_organ_-_Jesuitenkirche_-_Heidelberg_-_Germany_2022.jpg/960px-Nave_organ_-_Jesuitenkirche_-_Heidelberg_-_Germany_2022.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/7/73/Jesuitenkirche-Heidelberg-2025.jpg/960px-Jesuitenkirche-Heidelberg-2025.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/Jesuitenkirche_Heidelberg.jpg/960px-Jesuitenkirche_Heidelberg.jpg"
+      ],
+      "id": "jesuitenkirche"
+    },
+    {
+      "name": "骑士之家",
+      "nameEn": "Haus zum Ritter",
+      "tag": "文艺复兴古宅 · 老城最古老民居",
+      "selected": true,
+      "intro": "骑士之家坐落在市集广场旁、正对圣灵教堂，是海德堡老城现存最古老、也是最华美的民居建筑。它建于1592年，由一位法国胡格诺派布商兴建，是海德堡少数在1693年法军焚城中幸存下来的老宅之一，因而格外珍贵。建筑立面是典型的德国文艺复兴风格，层层叠叠的山墙、精雕细琢的窗楣与人像浮雕极尽繁复，顶端矗立着一尊手持长剑的圣乔治骑士雕像，「骑士之家」由此得名。如今这里是一家历史悠久的酒店与餐厅，游客既能在广场上仰望这座红砂岩杰作，也能走进内部用餐、感受数百年前富商宅邸的气派。它与对面的圣灵教堂、周边的市集广场共同构成老城最经典的画面。",
+      "hours": "外观全天可观赏；内部餐厅与酒店按营业时间开放",
+      "price": "免费参观外观；餐饮/住宿另计",
+      "duration": "约 10–20 分钟",
+      "tips": "站在市集广场角度取景，可同框圣灵教堂；顶端圣乔治骑士像是打卡焦点",
+      "mapQuery": "Haus zum Ritter, Heidelberg",
+      "rating": 4.5,
+      "reviews": 168,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "文艺复兴立面雕刻太精致了，是老城里最耐看的建筑之一。",
+          "type": "good"
+        },
+        {
+          "t": "得知它是焚城后幸存的最古老民居，站在前面很有历史厚重感。",
+          "type": "good"
+        },
+        {
+          "t": "就在市集广场旁边，和圣灵教堂一起拍特别出片。",
+          "type": "good"
+        },
+        {
+          "t": "现在是酒店餐厅，只能看外观，想进去得消费，心理有点落差。",
+          "type": "neutral"
+        },
+        {
+          "t": "广场人多，想拍到没游客的干净立面几乎不可能，得赶早。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/8/88/Haus_zum_Ritter%2C_Heidelberg.jpg/960px-Haus_zum_Ritter%2C_Heidelberg.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Heidelberg%2C_Haus_zum_Ritter.jpg/960px-Heidelberg%2C_Haus_zum_Ritter.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/9/91/Heidelberg-Haus_zum_Ritter.jpg/960px-Heidelberg-Haus_zum_Ritter.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1d/Heidelberg-Haus_zum_Ritter_von_Norden-20110708.jpg/960px-Heidelberg-Haus_zum_Ritter_von_Norden-20110708.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/2002-04-02_Ritter_St._Georg_am_Haus_zum_Ritter%2C_Heidelberg_IMG_0395.jpg/960px-2002-04-02_Ritter_St._Georg_am_Haus_zum_Ritter%2C_Heidelberg_IMG_0395.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/2002-04-02_Haus_zum_Ritter%2C_Heidelberg_IMG_0392.jpg/960px-2002-04-02_Haus_zum_Ritter%2C_Heidelberg_IMG_0392.jpg"
+      ],
+      "id": "haus-zum-ritter"
+    },
+    {
+      "name": "粮食广场",
+      "nameEn": "Kornmarkt",
+      "tag": "老城广场 · 城堡最佳取景地",
+      "selected": true,
+      "intro": "粮食广场是海德堡老城一处小巧而迷人的广场，因中世纪时曾是谷物交易市场而得名。广场不大，却拥有全城最经典的一个视角——从这里抬头望去，海德堡城堡的红砂岩残垣正好被前景的老宅与树木衬托，构成明信片般的画面，是摄影爱好者公认的城堡最佳拍摄点之一。广场中央矗立着一座建于1718年的巴洛克式圣母柱（Mariensäule），镀金的圣母像在阳光下熠熠生辉，是反宗教改革时期天主教信仰的象征。广场一角还有通往城堡的登山缆车（Bergbahn）下站，游客常在此换乘上山。周边环绕着咖啡馆与餐厅，坐下来喝杯咖啡、仰望城堡，是感受海德堡悠闲氛围的惬意时刻。",
+      "hours": "全天开放",
+      "price": "免费",
+      "duration": "约 15–30 分钟",
+      "tips": "这里是仰拍城堡的绝佳机位；缆车下站就在旁边，可顺道上山；圣母柱是广场地标",
+      "mapQuery": "Kornmarkt, Heidelberg",
+      "rating": 4.5,
+      "reviews": 142,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "从这个广场仰拍城堡角度绝佳，是我在海德堡最满意的一张照片。",
+          "type": "good"
+        },
+        {
+          "t": "广场中央的镀金圣母柱很漂亮，配上城堡背景很有味道。",
+          "type": "good"
+        },
+        {
+          "t": "缆车站就在旁边，逛完广场直接上山去城堡，动线很顺。",
+          "type": "good"
+        },
+        {
+          "t": "广场本身比较小，主要是拍照和换乘缆车，停留时间不会太长。",
+          "type": "neutral"
+        },
+        {
+          "t": "热门机位人很多，想拍到干净的城堡视角要耐心等或者早点来。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Kornmarkt_Heidelberg.jpg/960px-Kornmarkt_Heidelberg.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Kornmarkt_Heidelberg-Mariens%C3%A4ule.jpg/960px-Kornmarkt_Heidelberg-Mariens%C3%A4ule.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Kornmarkt_%28Heidelberg%29.JPG/960px-Kornmarkt_%28Heidelberg%29.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/Kornmarkt_Heidelberg_01.jpg/960px-Kornmarkt_Heidelberg_01.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/9/91/Kornmarkt_-_Heidelberg_-_Germany_2017.jpg/960px-Kornmarkt_-_Heidelberg_-_Germany_2017.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/Heidelberg_Kornmarkt_Rathaus.jpg/960px-Heidelberg_Kornmarkt_Rathaus.jpg"
+      ],
+      "id": "kornmarkt"
+    },
+    {
+      "name": "内卡河",
+      "nameEn": "Neckar River",
+      "tag": "自然风光 · 河畔漫步与游船",
+      "selected": true,
+      "intro": "内卡河是流经海德堡的灵魂之河，自东向西穿城而过，将老城与对岸的新城及哲学家小径分隔又相连。它宽阔平缓、波光潋滟，两岸绿树成荫，河上老桥横跨、游船往来，构成海德堡最经典的风景画面——尤其是从老桥或哲学家小径望去，红砂岩城堡倒映在粼粼水面上，浪漫至极。游客可以沿河岸的林荫步道悠闲散步、骑行，或乘坐观光游船饱览两岸风光；夏季河畔草坪上常有当地人野餐、晒太阳，一派惬意的德式慢生活。清晨薄雾中的内卡河与傍晚金色夕阳下的河景各有韵味，是摄影和放松身心的绝佳去处。诗人歌德曾说他把心遗失在了海德堡，很大程度上正是被这条河与两岸风光所打动。",
+      "hours": "全天开放；游船按季节班次运营",
+      "price": "河畔免费；观光游船约 €12–16 起",
+      "duration": "约 30–60 分钟（含散步或游船）",
+      "tips": "傍晚河畔光线最美；乘游船可从水上看城堡；哲学家小径角度倒影最佳",
+      "mapQuery": "Neckar, Heidelberg",
+      "rating": 4.6,
+      "reviews": 205,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "沿河散步太舒服了，两岸绿意配着城堡，随手一拍都是明信片。",
+          "type": "good"
+        },
+        {
+          "t": "坐了游船从水上看老桥和城堡，角度很特别，值回票价。",
+          "type": "good"
+        },
+        {
+          "t": "傍晚河边坐着看夕阳，惬意到不想走，感受到了德式慢生活。",
+          "type": "good"
+        },
+        {
+          "t": "河景很美但游船班次有限，赶不上就只能岸边走走，行前查好时间。",
+          "type": "neutral"
+        },
+        {
+          "t": "旺季河畔人多，热门机位要排队，想安静欣赏得避开高峰。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/2/27/Blue_evening_view_at_old_town_of_Heidelberg_and_Neckar_river.jpg/960px-Blue_evening_view_at_old_town_of_Heidelberg_and_Neckar_river.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/5/57/Heidelberg%2C_Neckar_River%2C_Old_Bridge%2C_Castle.jpg/960px-Heidelberg%2C_Neckar_River%2C_Old_Bridge%2C_Castle.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/2/27/Heidelberg_-_Alte_Br%C3%BCcke_-_View_East_on_River_Neckar.jpg/960px-Heidelberg_-_Alte_Br%C3%BCcke_-_View_East_on_River_Neckar.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/Neckar_river_at_Heidelberg.jpg/960px-Neckar_river_at_Heidelberg.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Der_Neckar_in_Heidelberg_IMG_0070.jpg/960px-Der_Neckar_in_Heidelberg_IMG_0070.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/Yellow_buoy_on_blue_Neckar_river%2C_Heidelberg%2C_D.jpg/960px-Yellow_buoy_on_blue_Neckar_river%2C_Heidelberg%2C_D.jpg"
+      ],
+      "id": "neckar"
+    },
+    {
+      "name": "海德堡登山缆车",
+      "nameEn": "Heidelberger Bergbahn",
+      "tag": "百年缆车 · 直达城堡与王座山",
+      "selected": true,
+      "intro": "海德堡登山缆车是德国历史最悠久的缆索铁路之一，分为上下两段，从老城的粮食广场站一路攀升，经城堡站、Molkenkur 站，直达海拔约550米的王座山（Königstuhl）山顶。下段建于1890年，采用现代化车厢；上段则保留着1907年的古董木质车厢，是德国现存最古老、仍在运营的电力缆车之一，本身就是一件流动的工业文化遗产，乘坐它仿佛穿越回百年前。缆车沿途穿越隧道、掠过树林，视野随高度不断开阔，坐在车厢里就能饱览老城、内卡河与远处莱茵平原的壮丽全景。对游客而言，它既是登城堡、上王座山最省力的交通方式，也是一段充满怀旧情调的观光体验，尤其上段的古董缆车深受铁道迷与摄影爱好者喜爱。",
+      "hours": "约 09:00–20:00（随季节调整，上段班次较少）",
+      "price": "往返城堡约 €9；直达王座山往返约 €16",
+      "duration": "约 20–40 分钟（含乘坐与换乘）",
+      "tips": "上段古董木质车厢别错过；持城堡联票含下段缆车；旺季排队较长宜错峰",
+      "mapQuery": "Bergbahn Kornmarkt, Heidelberg",
+      "rating": 4.5,
+      "reviews": 176,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "上段是百年古董木质车厢，坐着特别有味道，铁道迷狂喜。",
+          "type": "good"
+        },
+        {
+          "t": "省力又能看风景，一路升上去老城和内卡河尽收眼底。",
+          "type": "good"
+        },
+        {
+          "t": "去城堡和王座山最方便的方式，动线顺，带老人小孩很友好。",
+          "type": "good"
+        },
+        {
+          "t": "上段班次间隔较长，换乘要等一会儿，安排时间要留点余量。",
+          "type": "neutral"
+        },
+        {
+          "t": "旺季排队人多，票价也不算便宜，性价比见仁见智。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f4/Bergbahn_Heidelberg.jpg/960px-Bergbahn_Heidelberg.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Heidelberger_Bergbahn_%284431729330%29.jpg/960px-Heidelberger_Bergbahn_%284431729330%29.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3c/Bergbahn_Heidelberg_Molkenkur.jpg/960px-Bergbahn_Heidelberg_Molkenkur.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Bergbahn_Heidelberg_IMG_0144.jpg/960px-Bergbahn_Heidelberg_IMG_0144.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/4/42/Obere_Bergbahn_Heidelberg%2C_Bahn_in_der_Station_K%C3%B6nigstuhl.jpg/960px-Obere_Bergbahn_Heidelberg%2C_Bahn_in_der_Station_K%C3%B6nigstuhl.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/Tunnel-Bergbahn-Heidelberg-Germany-01.jpg/960px-Tunnel-Bergbahn-Heidelberg-Germany-01.jpg"
+      ],
+      "id": "bergbahn"
+    },
+    {
+      "name": "城堡花园",
+      "nameEn": "Hortus Palatinus (Schlossgarten)",
+      "tag": "文艺复兴园林 · 城堡观景台",
+      "selected": true,
+      "intro": "城堡花园又称「帕拉丁花园」（Hortus Palatinus），坐落在海德堡城堡东侧的山坡台地上，由选帝侯腓特烈五世于1614年为其英国王后伊丽莎白·斯图亚特倾力营建，被当时誉为「世界第八大奇迹」。花园以层层叠叠的人工台地、几何式花坛、喷泉、雕塑与洞穴构成，是德国文艺复兴园林的巅峰之作。然而三十年战争的爆发使工程半途而废，未能完全建成，如今保留下来的多为宏伟的台地结构与部分遗迹，草木葱茏、绿意盎然。虽已不复当年的繁复精致，这里却是俯瞰城堡红砂岩废墟、眺望老城与内卡河谷全景的绝佳观景台，视野开阔、氛围静谧。漫步在古老的台地园林间，既能感受历史的沧桑，也能享受远离喧嚣的悠然，是游览城堡时不容错过的一部分。",
+      "hours": "约 08:00–18:00（随城堡开放时间，免费区域较长）",
+      "price": "免费（含在城堡区域内）",
+      "duration": "约 30–45 分钟",
+      "tips": "台地边缘是俯瞰城堡与老城的最佳视角；春夏绿意最盛；与城堡一并游览最顺",
+      "mapQuery": "Schlossgarten Heidelberg, Hortus Palatinus",
+      "rating": 4.4,
+      "reviews": 138,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "从花园台地俯瞰城堡和老城的视角超棒，比在城堡里看更全。",
+          "type": "good"
+        },
+        {
+          "t": "环境安静绿意盎然，逛完城堡来这里散步透气特别舒服。",
+          "type": "good"
+        },
+        {
+          "t": "免费的，和城堡一起逛顺路，了解到它曾被誉为世界第八奇迹很惊喜。",
+          "type": "good"
+        },
+        {
+          "t": "因为战争没建完，现在遗迹为主，冲着华丽园林来的可能会略失望。",
+          "type": "neutral"
+        },
+        {
+          "t": "冬天草木凋零显得有点萧瑟，观感不如春夏，看季节。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9c/Hortus_Palatinus_01.JPG/960px-Hortus_Palatinus_01.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/1/14/Hortus_Palatinus_09.JPG/960px-Hortus_Palatinus_09.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Hortus_Palatinus_15.JPG/960px-Hortus_Palatinus_15.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/5/51/Hortus_Palatinus_07.JPG/960px-Hortus_Palatinus_07.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6a/Hortus_Palatinus_06.JPG/960px-Hortus_Palatinus_06.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b0/Musengaul_Hortus_Palatinus_2.jpg/960px-Musengaul_Hortus_Palatinus_2.jpg"
+      ],
+      "id": "schlossgarten"
+    },
+    {
+      "name": "选帝侯博物馆",
+      "nameEn": "Kurpfälzisches Museum",
+      "tag": "城市博物馆 · 艺术与考古珍藏",
+      "selected": true,
+      "intro": "选帝侯博物馆坐落在老城主街的莫拉斯宫（Palais Morass）中，是一座集艺术、考古与城市历史于一体的综合性博物馆，得名于历史上统治这片土地的普法尔茨选帝侯。博物馆本身即是一座优雅的巴洛克贵族宅邸，内部收藏极为丰富：既有从中世纪到20世纪的绘画、雕塑与工艺品，也有反映选帝侯宫廷生活的华美家具与瓷器。镇馆之宝之一是文艺复兴大师提尔曼·里门施奈德的木雕祭坛《十二使徒祭坛》，精湛的雕工令人叹为观止；考古部门则陈列着著名的「海德堡人」下颌骨复制品——这是欧洲最古老的人类化石之一。博物馆还辟有专门展厅呈现海德堡从中世纪到浪漫主义时代的城市变迁。对想深入了解这座城市历史文化底蕴的游客而言，这里是一处安静而充实的宝藏之地。",
+      "hours": "周二–周日 10:00–18:00（周一闭馆）",
+      "price": "成人约 €3；特展另计",
+      "duration": "约 1–1.5 小时",
+      "tips": "里门施奈德的《十二使徒祭坛》木雕不容错过；周日票价常有优惠；周一闭馆",
+      "mapQuery": "Kurpfälzisches Museum, Heidelberg",
+      "rating": 4.3,
+      "reviews": 96,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "里门施奈德的木雕祭坛太震撼了，光这一件就值回票价。",
+          "type": "good"
+        },
+        {
+          "t": "建筑本身是巴洛克贵族宅邸，逛展顺带欣赏老宅，很有格调。",
+          "type": "good"
+        },
+        {
+          "t": "看到了海德堡人化石复制品，对了解这座城市历史帮助很大。",
+          "type": "good"
+        },
+        {
+          "t": "藏品不算超大规模，走马观花一小时就够，深度爱好者可能觉得少。",
+          "type": "neutral"
+        },
+        {
+          "t": "部分说明牌只有德文，外国游客理解展品背景稍有障碍。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0f/Kurpf%C3%A4lzisches_Museum_Haupteingang.JPG/960px-Kurpf%C3%A4lzisches_Museum_Haupteingang.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/Sammlung_Kurpf%C3%A4lzisches_Museum_Heidelberg.jpg/960px-Sammlung_Kurpf%C3%A4lzisches_Museum_Heidelberg.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0a/Sammlung_Kurpf%C3%A4lzisches_Museum_Heidelberg_10.jpg/960px-Sammlung_Kurpf%C3%A4lzisches_Museum_Heidelberg_10.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Sammlung_Kurpf%C3%A4lzisches_Museum_Heidelberg_7.jpg/960px-Sammlung_Kurpf%C3%A4lzisches_Museum_Heidelberg_7.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Sammlung_Kurpf%C3%A4lzisches_Museum_Heidelberg_9.jpg/960px-Sammlung_Kurpf%C3%A4lzisches_Museum_Heidelberg_9.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/Lapidarium_Kurpf%C3%A4lzisches_Museum_Heidelberg.jpg/960px-Lapidarium_Kurpf%C3%A4lzisches_Museum_Heidelberg.jpg"
+      ],
+      "id": "kurpfaelzisches-museum"
+    },
+    {
+      "name": "施韦青根宫",
+      "nameEn": "Schwetzingen Palace",
+      "tag": "巴洛克夏宫 · 周边绝美园林",
+      "selected": true,
+      "intro": "施韦青根宫位于海德堡西南约15公里的施韦青根小镇，是普法尔茨选帝侯卡尔·特奥多尔的夏季行宫，以其规模宏大、设计精妙的宫廷花园闻名于世，被誉为德国最美的巴洛克-洛可可园林之一。宫殿主体为优雅的巴洛克建筑，内部保留着华丽的宫廷厅室与欧洲现存最古老、仍在使用的洛可可剧院之一。真正的精华在于其占地广阔的园林：法式几何花坛、圆形喷泉水池、雕塑林立的林荫大道，以及散布其间的诸多异国情调建筑——包括一座造型精美的清真寺（欧洲最早的园林清真寺之一）、罗马水道遗迹、中国式拱桥与阿波罗神庙等，将启蒙时代欧洲人对东方与古典的浪漫想象浓缩于一园。这里春夏花团锦簇、秋日层林尽染，是从海德堡出发半日游的绝佳选择，也是摄影与漫步的天堂。",
+      "hours": "花园约 09:00–20:00（随季节调整）；宫殿内部需参加导览",
+      "price": "花园约 €10；宫殿+花园联票约 €14",
+      "duration": "约 2–3 小时",
+      "tips": "距海德堡约15公里，可乘火车前往；园中清真寺与中国桥是打卡点；洛可可剧院需导览",
+      "mapQuery": "Schloss Schwetzingen",
+      "rating": 4.6,
+      "reviews": 154,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "花园太美了，几何花坛配喷泉和清真寺，随手拍都像画一样。",
+          "type": "good"
+        },
+        {
+          "t": "从海德堡坐火车过来很方便，半日游安排得刚刚好，值得一来。",
+          "type": "good"
+        },
+        {
+          "t": "洛可可剧院和园中的异国建筑很有看头，感受到启蒙时代的浪漫。",
+          "type": "good"
+        },
+        {
+          "t": "园区很大逛下来挺费腿，想全看完要留足时间，穿双好鞋。",
+          "type": "neutral"
+        },
+        {
+          "t": "宫殿内部只能跟导览进，时间不凑巧就只能逛花园，略遗憾。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/Aerial_image_of_the_Schwetzingen_Palace_and_gardens_%28view_from_the_southeast%29.jpg/960px-Aerial_image_of_the_Schwetzingen_Palace_and_gardens_%28view_from_the_southeast%29.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/6/61/Schwetzingen_Schloss_Eingang.jpg/960px-Schwetzingen_Schloss_Eingang.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Schwetzingen_-_Schlossgarten_-_Moschee_-_Ansicht_%C3%BCber_den_Moscheeweiher_im_Herbst_1.jpg/960px-Schwetzingen_-_Schlossgarten_-_Moschee_-_Ansicht_%C3%BCber_den_Moscheeweiher_im_Herbst_1.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/Schwetzingen_-_Schlossgarten_-_Chinesische_Br%C3%BCcke_von_NO_1.jpg/960px-Schwetzingen_-_Schlossgarten_-_Chinesische_Br%C3%BCcke_von_NO_1.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/Schwetzingen_-_Schlossgarten_-_Gro%C3%9Fer_Weiher_-_Westende_mit_Br%C3%BCcke_im_Herbst_2.jpg/960px-Schwetzingen_-_Schlossgarten_-_Gro%C3%9Fer_Weiher_-_Westende_mit_Br%C3%BCcke_im_Herbst_2.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Schloss_Schwetzingen_-_Moschee_-_Wandelgang_01.jpg/960px-Schloss_Schwetzingen_-_Moschee_-_Wandelgang_01.jpg"
+      ],
+      "id": "schloss-schwetzingen"
+    },
+    {
+      "name": "老城主街",
+      "nameEn": "Hauptstraße",
+      "tag": "步行长街 · 购物与老城漫游",
+      "selected": true,
+      "intro": "老城主街是贯穿海德堡老城的中轴线，全长约1.6公里，是欧洲最长的步行商业街之一，也是感受这座城市日常脉搏的最佳去处。街道东起卡尔门、西至俾斯麦广场，一路串联起市集广场、大学广场、圣灵教堂、骑士之家等诸多地标，两侧是鳞次栉比的巴洛克与文艺复兴风格老宅，如今底层大多改作商店、咖啡馆、书店与餐厅。漫步其间，古典建筑与现代橱窗交相辉映，街头艺人的乐声不时飘来，既能购物淘礼、品尝德式糕点与冰淇淋，也能随意拐进一条条幽静的石板小巷，发现意想不到的角落与风景。无论是白天熙熙攘攘的热闹，还是夜晚灯火温柔的静谧，主街都浓缩着海德堡老城最鲜活的生活气息，是把各大景点串成一线的天然游览动脉。",
+      "hours": "全天开放；商店多为 10:00–19:00",
+      "price": "免费（购物餐饮另计）",
+      "duration": "约 1–2 小时（含逛街）",
+      "tips": "从卡尔门走到俾斯麦广场可串起大半老城景点；拐进侧巷常有惊喜；周末最热闹",
+      "mapQuery": "Hauptstraße, Heidelberg",
+      "rating": 4.5,
+      "reviews": 187,
+      "ratingSource": "Trip.com / Tripadvisor 综合",
+      "reviewList": [
+        {
+          "t": "一条街把老城景点全串起来了，边逛边看边吃，非常惬意。",
+          "type": "good"
+        },
+        {
+          "t": "两旁老建筑配上商店橱窗很有味道，随便拐进小巷都出片。",
+          "type": "good"
+        },
+        {
+          "t": "购物、咖啡、糕点应有尽有，还常有街头艺人表演，氛围很棒。",
+          "type": "good"
+        },
+        {
+          "t": "本质还是商业步行街，想找原汁原味的古城感要往小巷里钻。",
+          "type": "neutral"
+        },
+        {
+          "t": "旺季和周末人潮汹涌，走起来略挤，怕吵的话建议早晨来逛。",
+          "type": "bad"
+        }
+      ],
+      "photos": [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/9/99/I._Heidelberg-Altstadt_Blick_von_der_Hauptstra%C3%9Fe_Heidelberg_in_die_Karl-Ludwig-Stra%C3%9Fe.jpg/960px-I._Heidelberg-Altstadt_Blick_von_der_Hauptstra%C3%9Fe_Heidelberg_in_die_Karl-Ludwig-Stra%C3%9Fe.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/II._Heidelberg-Altstadt_Blick_von_der_Hauptstra%C3%9Fe_Heidelberg_in_die_Karl-Ludwig-Stra%C3%9Fe.jpg/960px-II._Heidelberg-Altstadt_Blick_von_der_Hauptstra%C3%9Fe_Heidelberg_in_die_Karl-Ludwig-Stra%C3%9Fe.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c9/Heidelberg-Altstadt_Blick_von_der_Hauptstra%C3%9Fe_in_die_Sandgasse_.JPG/960px-Heidelberg-Altstadt_Blick_von_der_Hauptstra%C3%9Fe_in_die_Sandgasse_.JPG",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/Heidelberg_Altstadt%2C_Mitteltor.jpg/960px-Heidelberg_Altstadt%2C_Mitteltor.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/Heidelberger_Altstadt%2C_Madonna_auf_der_Weltkugel%2C_Barock_Skulptur_an_einem_Anwesen_auf_der_Hauptstrasse_Heidelberg_.jpg/960px-Heidelberger_Altstadt%2C_Madonna_auf_der_Weltkugel%2C_Barock_Skulptur_an_einem_Anwesen_auf_der_Hauptstrasse_Heidelberg_.jpg",
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/5/59/Wohnhausfassade_Heidelberger_Altstadt.JPG/960px-Wohnhausfassade_Heidelberger_Altstadt.JPG"
+      ],
+      "id": "hauptstrasse"
+    }
+  ]
+};
+
+/* =========================== 渲染逻辑（一般无需修改） =========================== */
+
+function stars(r){
+  if(r==null || isNaN(r)) return "暂无";
+  const full = Math.round(r);
+  return "★".repeat(full) + "☆".repeat(5-full);
+}
+const TYPE_LABEL = {good:"好评", neutral:"中评", bad:"差评"};
+function mapSrc(q, z){
+  return "https://maps.google.com/maps?q=" + encodeURIComponent(q) + "&z=" + (z||15) + "&output=embed";
+}
+const STORE_KEY = "taf-sel-" + (DATA.cityEn||DATA.city||"travel");
+function selectedIds(){
+  // 优先从 localStorage 读取已保存的选取（按城市隔离）；无记录时回退到 DATA 默认。
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if(raw){
+      const saved = JSON.parse(raw);
+      if(saved && Array.isArray(saved.ids)) return new Set(saved.ids);
+    }
+  } catch(e){ /* localStorage 不可用时回退默认 */ }
+  return new Set(DATA.attractions.filter(a=>a.selected!==false).map(a=>a.id));
+}
+function writeSel(set){
+  // 仅写入机器可读的 #taf-selection JSON（供其它 skill 读取）；不再使用 localStorage。
+  const sel = DATA.attractions.filter(a=>set.has(a.id)).map(a=>({id:a.id,name:a.name}));
+  const obj = { city: DATA.city, cityEn: DATA.cityEn, total: DATA.attractions.length, selected: sel };
+  document.getElementById("taf-selection").textContent = JSON.stringify(obj);
+}
+function updateChip(id, on){
+  const chip = document.querySelector('nav.toc a[data-id="'+id+'"]');
+  if(chip){ chip.classList.toggle("sel-on", on); chip.classList.toggle("sel-off", !on); }
+}
+function toggleSelect(id, on, set){
+  if(on) set.add(id); else set.delete(id);
+  const a = DATA.attractions.find(x=>x.id===id);
+  if(a) a.selected = on;
+  const card = document.getElementById(id);
+  if(card) card.setAttribute("data-selected", on ? "true" : "false");
+  const cb = card && card.querySelector(".visit-cb");
+  if(cb) cb.checked = on;
+  const head = card && card.querySelector(".a-head");
+  if(head) head.classList.toggle("visit-on", on);
+  updateChip(id, on);
+  writeSel(set);
+  markDirty(); // 标记有未保存更改
+}
+
+/* 轻量 toast 提示（自包含，首次调用时动态创建元素，不占页面空间） */
+function showToast(msg){
+  let t=document.getElementById("taf-toast");
+  if(!t){
+    t=document.createElement("div");
+    t.id="taf-toast";
+    t.style.cssText="position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:rgba(20,30,50,.92);color:#fff;padding:10px 18px;border-radius:10px;font:600 13px/1.4 system-ui,-apple-system,sans-serif;z-index:9999;opacity:0;transition:opacity .25s;pointer-events:none;box-shadow:0 6px 20px rgba(0,0,0,.25)";
+    document.body.appendChild(t);
+  }
+  t.textContent=msg; t.style.opacity="1";
+  clearTimeout(showToast._t);
+  showToast._t=setTimeout(()=>{ t.style.opacity="0"; }, 2200);
+}
+
+/* 保存更改：把当前选取写入本机浏览器 localStorage（按城市隔离）。
+   切换选取不会自动保存，需点击标签栏右侧「保存更改」按钮；保存前按钮呈橙色警示「未保存」。 */
+function markDirty(){
+  const b=document.getElementById("saveBtn");
+  if(b) b.classList.add("dirty");
+}
+function saveSelection(){
+  const set = new Set(DATA.attractions.filter(a=>a.selected).map(a=>a.id));
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({city:DATA.city, ids:[...set]}));
+    const b=document.getElementById("saveBtn");
+    if(b) b.classList.remove("dirty");
+    showToast("已保存更改 ✓");
+  } catch(e){
+    showToast("保存失败：" + (e && e.message ? e.message : e));
+  }
+}
+
+function render(){
+  document.getElementById("flag").textContent = DATA.flag || "📍";
+  document.getElementById("cityTitle").textContent = DATA.country + " · " + DATA.city + (DATA.cityEn? "（"+DATA.cityEn+"）":"");
+  document.title = DATA.country + " · " + DATA.city + " 景点导览" + (DATA.cityEn? "（"+DATA.cityEn+"）":"");
+  document.getElementById("region").textContent = DATA.region || "";
+  document.getElementById("cityIntro").textContent = DATA.intro || "";
+  document.getElementById("cityMap").src = mapSrc((DATA.cityEn||DATA.city) + ", " + (DATA.countryEn||DATA.country), DATA.mapZoom || 5);
+
+  const toc = document.getElementById("chips");
+  const list = document.getElementById("list");
+  /* 重绘前先清空容器，保证 render() 可安全重复调用（如云端同步后二次重绘）*/
+  toc.innerHTML = "";
+  list.innerHTML = "";
+  /* 先为所有景点补齐稳定且唯一的 id（优先用自带 id，否则回退 "a"+序号），
+     供锚点、标签栏 data-id、勾选回传与保存集合统一使用——缺失 id 会导致
+     标签亮显错位、勾选与卡片不同步、保存失效。 */
+  DATA.attractions.forEach((a,i)=>{ if(!a.id) a.id = "a"+i; });
+  const set = selectedIds();
+  DATA.attractions.forEach((a,i)=>{
+    const on = set.has(a.id);
+    a.selected = on;
+    const aEl = document.createElement("section");
+    aEl.className = "attraction";
+    aEl.id = a.id || ("a"+i);
+    aEl.setAttribute("data-selected", on ? "true" : "false");
+    const imgs = (a.photos||[]).map(p=>`<img src="${p}" alt="${a.name}" loading="lazy" onclick="openLb('${p}')">`).join("");
+    const reviewItems = (a.reviewList||[]).map(r=>{
+      let t="good", txt=r;
+      if(r && typeof r==="object"){ t=r.type||"good"; txt=r.t||r.text||""; }
+      const lb = TYPE_LABEL[t]||"好评";
+      return `<li class="review-item rt-${t}"><span class="rbadge rb-${t}">${lb}</span><span class="rtext">${txt}</span></li>`;
+    }).join("");
+    const scoreHtml = (a.rating!=null)
+      ? `<span class="stars">${stars(a.rating)}</span><span class="score">${a.rating}</span><span class="meta"> / 5</span>`
+      : `<span class="stars">${stars(a.rating)}</span>`;
+    const extraFacts = [
+      (a.duration? `<div class="fact"><h4>建议时长</h4><p>${a.duration}</p></div>` : ""),
+      (a.tips? `<div class="fact"><h4>实用贴士</h4><p>${a.tips}</p></div>` : "")
+    ].join("");
+    aEl.innerHTML = `
+      <div class="left">
+        <div class="a-head${on?" visit-on":""}">
+          <input class="visit-cb" type="checkbox" id="cb-${a.id}" ${on?"checked":""}>
+          <h2>${a.name}</h2><span class="en">${a.nameEn||""}</span>
+          <label class="vlabel" for="cb-${a.id}"><span class="tick">✓</span> 准备参观</label>
+        </div>
+        <span class="tag">${a.tag||""}</span>
+        <p class="a-intro">${a.intro||""}</p>
+        <div class="facts">
+          <div class="fact"><h4>开放时间</h4><p>${a.hours||"—"}</p></div>
+          <div class="fact"><h4>票价</h4><p>${a.price||"—"}</p></div>
+          ${extraFacts}
+        </div>
+        <div class="gallery">${imgs}</div>
+      </div>
+      <aside class="right">
+        <div class="mapcard">
+          <iframe class="map-frame" loading="lazy"
+            title="Google 地图"
+            src="${mapSrc(a.mapQuery,15)}"
+            referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
+          <div class="reviewcol">
+            <div class="review-card">
+              <div class="rc-title">评价</div>
+              <div>${scoreHtml}</div>
+              <div class="meta">${a.reviews? a.reviews.toLocaleString()+" 条评价":""}</div>
+              <div class="src">来源：${a.ratingSource||"第三方聚合"}</div>
+              ${reviewItems? `<ul class="review-list">${reviewItems}</ul>`:""}
+              <a class="gmap-link" target="_blank" rel="noopener"
+                 href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(a.mapQuery)}">在 Google 地图查看 ↗</a>
+            </div>
+          </div>
+        </div>
+      </aside>`;
+    list.appendChild(aEl);
+
+    // 勾选框 → 同步状态
+    aEl.querySelector(".visit-cb").addEventListener("change", e=>{
+      const s = selectedIds();
+      toggleSelect(a.id, e.target.checked, s);
+    });
+
+    // 顶部标签栏 chip（蓝色=已选）
+    const chip = document.createElement("a");
+    chip.href = "#" + aEl.id;
+    chip.addEventListener("click", function(e){ e.preventDefault(); var t=document.getElementById(aEl.id); if(t) t.scrollIntoView({behavior:"smooth", block:"start"}); });
+    chip.dataset.id = a.id;
+    chip.textContent = a.name;
+    chip.className = on ? "sel-on" : "sel-off";
+    toc.appendChild(chip);
+  });
+  writeSel(set);
+  setNavHeight(); // chip 已生成，此刻测量标签栏真实高度并写入 --nav-h
+}
+
+/* 测量顶部标签栏真实高度（chip 换行会变高），写入 --nav-h，供锚点偏移与右栏吸顶对齐使用 */
+function setNavHeight(){
+  const nav = document.querySelector("nav.toc");
+  if(nav) document.documentElement.style.setProperty("--nav-h", nav.offsetHeight + "px");
+}
+
+/* 复制所选清单按钮已移除：标签栏只保留选择状态 chip（蓝色=已选、灰色=未选），选择状态经卡片 data-selected / #taf-selection JSON 对外可读（文件即唯一真相，不依赖 localStorage）。 */
+
+/* 地图高度：上端对齐景点标题、下端对齐左侧「开放时间」卡片底部 */
+function adjustMapHeights(){
+  const wide = window.innerWidth > 1000;
+  document.querySelectorAll(".attraction").forEach(el=>{
+    const frame = el.querySelector(".map-frame");
+    if(!frame) return;
+    if(!wide){ frame.style.height = "300px"; return; }
+    const facts = el.querySelector(".facts");
+    if(!facts){ return; }
+    const frameTop = frame.getBoundingClientRect().top;
+    const factsBottom = facts.getBoundingClientRect().bottom;
+    const h = factsBottom - frameTop;
+    frame.style.height = (h > 200 ? h : 300) + "px";
+  });
+}
+
+function openLb(src){document.getElementById("lbImg").src=src;document.getElementById("lightbox").classList.add("open");}
+function closeLb(){document.getElementById("lightbox").classList.remove("open");}
+document.getElementById("lightbox").addEventListener("click",e=>{if(e.target.id==="lightbox")closeLb();});
+render();
+adjustMapHeights();
+setNavHeight();
+window.addEventListener("load", ()=>{ adjustMapHeights(); setNavHeight(); });
+window.addEventListener("resize", ()=>{ adjustMapHeights(); setNavHeight(); });
+</script>
+<button class="totop" id="toTop" title="返回顶部" aria-label="返回顶部"><span class="arw">↑</span><span class="lbl">顶部</span></button>
+<script>(function(){var b=document.getElementById('toTop');if(!b)return;window.addEventListener('scroll',function(){if(window.scrollY>320)b.classList.add('show');else b.classList.remove('show');});b.addEventListener('click',function(){window.scrollTo({top:0,behavior:'smooth'});});})();</script>
+<!-- taf-auth-injected -->
+<!-- 旅游景点搜罗 v2.0 登录/游客 片段（仅当 build_home.js 带 --auth 时注入所有页面） -->
+<!-- 注意：下方 https://sbiijjprqktkdfhlsmmm.supabase.co / sb_publishable_i59OhFlpqJ5kALIoDyI17w_qlkKTAbM 由 build_home.js 注入时替换为真实值 -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+.ct-auth{margin-left:auto;display:flex;gap:8px;align-items:center}
+.ct-auth-user{font-size:13px;color:#cdd7ea;white-space:nowrap}
+.ct-auth-btn{font-size:12.5px;font-weight:700;color:#fff;background:rgba(255,255,255,.14);
+  border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:5px 13px;cursor:pointer;white-space:nowrap}
+.ct-auth-btn:hover{background:rgba(255,255,255,.26)}
+.taf-auth-float{position:fixed;top:8px;right:8px;z-index:650;background:rgba(15,31,61,.92);padding:6px 10px;border-radius:999px;display:flex;gap:8px;align-items:center;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+#tafAuthModal{position:fixed;inset:0;background:rgba(8,14,26,.78);display:none;align-items:center;justify-content:center;z-index:2000;padding:20px}
+#tafAuthModal.open{display:flex}
+.taf-modal{width:min(380px,92vw);background:#fff;border-radius:18px;padding:26px 24px;box-shadow:0 20px 60px rgba(0,0,0,.4);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+.taf-modal h3{margin:0 0 4px;font-size:21px;color:#1f2733}
+.taf-modal .sub{margin:0 0 18px;font-size:13px;color:#6b7686;line-height:1.5}
+.taf-field{margin-bottom:12px}
+.taf-field label{display:block;font-size:12.5px;color:#6b7686;margin-bottom:5px;font-weight:600}
+.taf-field input{width:100%;padding:11px 13px;border:1px solid #d8dee8;border-radius:10px;font-size:15px;box-sizing:border-box;outline:none}
+.taf-field input:focus{border-color:#2f6df0}
+.taf-row{display:flex;gap:10px;margin-top:6px}
+.taf-btn{flex:1;padding:11px 0;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer}
+.taf-btn.primary{background:#2f6df0;color:#fff}
+.taf-btn.primary:hover{background:#1f5ad6}
+.taf-btn.primary:disabled{opacity:.6;cursor:default}
+.taf-btn.ghost{flex:0 0 auto;background:#eef1f5;color:#33404f}
+.taf-btn.ghost:hover{background:#e2e7ee}
+.taf-auth-msg{font-size:13px;min-height:18px;margin-top:12px;line-height:1.4}
+.taf-auth-msg.err{color:#cf3b3b}
+.taf-auth-msg.ok{color:#1f9d4d}
+.taf-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(20px);background:rgba(20,30,50,.92);color:#fff;
+  padding:10px 18px;border-radius:10px;font:600 13px/1.4 system-ui,-apple-system,sans-serif;z-index:9999;opacity:0;pointer-events:none;
+  transition:opacity .25s,transform .25s}
+.taf-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+<div id="tafAuthModal">
+  <div class="taf-modal">
+    <h3>登录 / 注册</h3>
+    <p class="sub">登录后可把「准备参观」的选择同步到云端，跨设备访问。不想注册？点「游客模式」直接浏览（选择仅存本机）。</p>
+    <div class="taf-field">
+      <label>用户名</label>
+      <input id="tafUser" type="text" autocomplete="username" placeholder="例如 travelfan">
+    </div>
+    <div class="taf-field">
+      <label>密码</label>
+      <input id="tafPass" type="password" autocomplete="current-password" placeholder="至少 6 位">
+    </div>
+    <div class="taf-row">
+      <button class="taf-btn primary" id="tafLoginBtn" onclick="TAF_AUTH.login()">登录</button>
+      <button class="taf-btn primary" id="tafSignupBtn" onclick="TAF_AUTH.signup()">注册</button>
+    </div>
+    <div class="taf-row">
+      <button class="taf-btn ghost" onclick="TAF_AUTH.guest()">游客模式（仅本机）</button>
+    </div>
+    <div class="taf-auth-msg" id="tafAuthMsg"></div>
+  </div>
+</div>
+<script>
+window.TAF_AUTH = (function(){
+  var SUPABASE_URL="https://sbiijjprqktkdfhlsmmm.supabase.co";
+  var SUPABASE_ANON="sb_publishable_i59OhFlpqJ5kALIoDyI17w_qlkKTAbM";
+  var EMAIL_SUFFIX="@taf.local";
+  var GUEST_KEY="taf_guest";
+  var sb=null, session=null, username=null;
+  function el(id){return document.getElementById(id);}
+  function cityKey(){
+    var d = (typeof DATA!=="undefined") ? DATA : (window.DATA||null);
+    var ck=(d&&(d.cityEn||d.city))||"travel";
+    return "taf-sel-"+ck;
+  }
+  function initClient(){
+    if(sb)return;
+    if(!window.supabase||!window.supabase.createClient){console.warn("Supabase SDK 未加载");return;}
+    sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON);
+  }
+  async function getSession(){
+    initClient(); if(!sb)return null;
+    var r=await sb.auth.getSession(); session=(r.data&&r.data.session)||null;
+    if(session){username=(session.user.user_metadata&&session.user.user_metadata.username)||(session.user.email||"").replace(EMAIL_SUFFIX,"");
+      console.log("[TAF] 当前登录 user_id="+session.user.id+" username="+username);}
+    return session;
+  }
+  function openModal(){var m=el("tafAuthModal");if(m)m.classList.add("open");}
+  function closeModal(){var m=el("tafAuthModal");if(m)m.classList.remove("open");}
+  function showMsg(m,isErr){var b=el("tafAuthMsg");if(!b)return;b.textContent=m;b.className="taf-auth-msg"+(isErr?" err":" ok");}
+  function setBusy(b){["tafLoginBtn","tafSignupBtn"].forEach(function(id){var e=el(id);if(e)e.disabled=b;});}
+  async function doLogin(){
+    var u=el("tafUser").value.trim(),p=el("tafPass").value;
+    if(!u||!p){showMsg("请输入用户名和密码",true);return;}
+    setBusy(true);showMsg("登录中…",false);initClient();
+    if(!sb){setBusy(false);showMsg("登录服务未就绪，请稍后重试",true);return;}
+    var r=await sb.auth.signInWithPassword({email:u+EMAIL_SUFFIX,password:p});
+    setBusy(false);
+    if(r.error){showMsg("登录失败："+(r.error.message||r.error),true);return;}
+    session=r.data.session;username=u;localStorage.removeItem(GUEST_KEY);closeModal();
+    showToast("已登录："+u); renderStatus(); await loadAndMerge(cityKey());
+  }
+  async function doSignup(){
+    var u=el("tafUser").value.trim(),p=el("tafPass").value;
+    if(!u||!p){showMsg("请输入用户名和密码",true);return;}
+    if(u.length<2){showMsg("用户名至少 2 个字符",true);return;}
+    setBusy(true);showMsg("注册中…",false);initClient();
+    if(!sb){setBusy(false);showMsg("注册服务未就绪，请稍后重试",true);return;}
+    var r=await sb.auth.signUp({email:u+EMAIL_SUFFIX,password:p,options:{data:{username:u}}});
+    setBusy(false);
+    if(r.error){var m=r.error.message||String(r.error);if(/email/i.test(m)&&/already/i.test(m))m="用户名已存在";showMsg("注册失败："+m,true);return;}
+    if(r.data&&r.data.session){session=r.data.session;username=u;localStorage.removeItem(GUEST_KEY);closeModal();showToast("注册成功，已登录："+u);renderStatus();await loadAndMerge(cityKey());}
+    else{showMsg("注册成功！若系统开启了邮箱确认，请查收确认邮件后再登录。",false);}
+  }
+  function doGuest(){localStorage.setItem(GUEST_KEY,"1");closeModal();renderStatus();showToast("已以游客模式浏览（选择仅保存在本机）");}
+  function doLogout(){if(sb)sb.auth.signOut();session=null;username=null;localStorage.removeItem(GUEST_KEY);renderStatus();showToast("已退出登录");}
+  async function syncSaveLocal(){
+    if(!session)return;
+    var ck=cityKey(),ids=[];
+    try{var raw=localStorage.getItem(ck);if(raw){var o=JSON.parse(raw);if(o&&Array.isArray(o.ids))ids=o.ids;}}catch(e){}
+    initClient(); if(!sb)return;
+    var r=await sb.from("selections").upsert({user_id:session.user.id,city_key:ck,ids:ids,updated_at:new Date().toISOString()},{onConflict:"user_id,city_key"});
+    if(r.error){console.warn("云端保存失败:",r.error);showToast("云端保存失败："+(r.error.message||r.error)+"（已存本机）");}
+    else{showToast("已保存到云端 ✓");}
+  }
+  function refreshUI(){
+    if(typeof render==="function"){ try{ render(); return true; }catch(e){ console.warn("render 刷新失败:",e); } }
+    return false;
+  }
+  async function loadAndMerge(ck){
+    if(!session)return;initClient(); if(!sb)return;
+    var r=await sb.from("selections").select("ids").eq("user_id",session.user.id).eq("city_key",ck).maybeSingle();
+    if(r.error){console.warn("云端读取失败:",r.error);showToast("云端读取失败："+(r.error.message||r.error));return;}
+    if(!r.data){ // 云端尚无记录：保留本机选择（或默认），不做任何覆盖
+      return;
+    }
+    // 登录态下云端为唯一真相：直接用云端集合作为当前选择，避免本机陈旧 localStorage
+    // 与云端取并集而污染跨设备同步结果（即"勾选框不同步"的根因）。未登录（游客）时
+    // 根本不会走到这里，页面由 selectedIds() 直接读本机数据，符合"未登录用 local"的约定。
+    var cloud=Array.isArray(r.data.ids)?r.data.ids:[];
+    try{ localStorage.setItem(ck, JSON.stringify({city:(((typeof DATA!=="undefined"&&DATA.city)||(window.DATA&&window.DATA.city))||""), ids:cloud})); }catch(e){}
+    // 直接重画 UI 反映云端选择（不再依赖 location.reload，避免时序/循环问题）。
+    refreshUI();
+    if(cloud.length){ showToast("已从云端同步 "+cloud.length+" 个选择 ✓"); }
+    else { showToast("已从云端同步（0 个选择）"); }
+  }
+  async function loadAllSelections(){
+    if(!session)return null;initClient(); if(!sb)return null;
+    var r=await sb.from("selections").select("city_key,ids").eq("user_id",session.user.id);
+    if(r.error){console.warn("云端读取失败:",r.error);return null;}
+    var map={};(r.data||[]).forEach(function(x){map[x.city_key]=Array.isArray(x.ids)?x.ids:[];});
+    return map;
+  }
+  function esc(s){s=String(s==null?"":s);return s.replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function renderStatus(){
+    var slot=el("tafAuthSlot");
+    if(!slot){ slot=el("tafAuthFloat"); if(!slot){ slot=document.createElement("span"); slot.id="tafAuthFloat"; slot.className="ct-auth taf-auth-float"; document.body.appendChild(slot); } }
+    if(session){var uid=String(session.user.id);slot.innerHTML='<span class="ct-auth-user">👤 '+esc(username||"用户")+' <small style="opacity:.55;font-size:11px">#'+uid.slice(0,8)+'</small></span><button class="ct-auth-btn" id="tafLogoutBtn">退出</button>';var lb=el("tafLogoutBtn");if(lb)lb.onclick=doLogout;}
+    else if(localStorage.getItem(GUEST_KEY)){slot.innerHTML='<span class="ct-auth-user">🚶 游客</span><button class="ct-auth-btn" id="tafLoginOpenBtn">登录</button>';var ob=el("tafLoginOpenBtn");if(ob)ob.onclick=openModal;}
+    else{slot.innerHTML='<button class="ct-auth-btn" id="tafLoginOpenBtn">登录 / 注册</button>';var ob2=el("tafLoginOpenBtn");if(ob2)ob2.onclick=openModal;}
+  }
+  function showToast(msg){var t=el("taf-toast");if(!t){t=document.createElement("div");t.id="taf-toast";t.className="taf-toast";document.body.appendChild(t);}t.textContent=msg;t.classList.add("show");clearTimeout(showToast._t);showToast._t=setTimeout(function(){t.classList.remove("show");},2200);}
+  async function boot(){
+    renderStatus();
+    var s=await getSession();
+    if(s){session=s;renderStatus(); if(typeof DATA!=="undefined"||window.DATA){ await loadAndMerge(cityKey()); } }
+    else if(!localStorage.getItem(GUEST_KEY)){openModal();}
+    renderStatus();
+  }
+  function bindSave(){var b=el("saveBtn");if(!b)return;b.addEventListener("click",function(){setTimeout(syncSaveLocal,0);});}
+  window.TAF_LOAD_ALL=loadAllSelections;
+  var tries=0;(function wait(){if(window.supabase&&window.supabase.createClient){initClient();boot();bindSave();}else if(tries++<60){setTimeout(wait,100);}else{console.warn("Supabase SDK 未加载，仅游客/本机模式可用");boot();bindSave();}})();
+  return {getSession:getSession,login:doLogin,signup:doSignup,guest:doGuest,logout:doLogout,syncSave:syncSaveLocal,loadAll:loadAllSelections};
+})();
+</script>
+
+<!-- /taf-auth-injected -->
+<!-- taf-filewarn-injected -->
+<div id="tafFileWarn" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:9999;background:#b91c1c;color:#fff;font-size:13px;line-height:1.55;padding:10px 18px;text-align:center;box-shadow:0 -2px 12px rgba(0,0,0,.28)">⚠️ 你正用 <b>file://</b> 直接打开本页：登录 / 保存 / 跨页同步均不可用。请用本地服务器访问，例如 <code style="background:rgba(255,255,255,.2);padding:1px 7px;border-radius:4px">http://127.0.0.1:8000/docs/index.html</code></div>
+<script>try{if(location.protocol==='file:'){var w=document.getElementById('tafFileWarn');if(w)w.style.display='block';}}catch(e){}</script>
+<!-- /taf-filewarn-injected -->
+</body>
+</html>
